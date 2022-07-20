@@ -1,0 +1,9 @@
+
+
+
+node v18.6.0
+npm v8.13.2
+nvm v1.1.7
+@formkit/vue": "^1.0.0-beta.9",
+formkit range example: https://formkit.com/inputs/range
+pinia store
