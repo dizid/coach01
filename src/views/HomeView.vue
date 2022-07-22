@@ -14,6 +14,7 @@ import QuestionsOne from '@/components/QuestionsOne.vue';
 
 export default {
   components: {
+    name:'questionsone',
     QuestionsOne
   }
 }
