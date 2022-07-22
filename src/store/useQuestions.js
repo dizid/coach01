@@ -1,17 +1,16 @@
 import { defineStore } from 'pinia'
 
-export const useQuestionStore = defineStore('Questions', {
-    state: () => {
-        return {
-            werk: 0,
-            sociaal: 0
-        }
-    },
-    // could also be defined as
-    // state: () => ({ count: 0 })
-    //   actions: {
-    //     increment() {
-    //       this.count++
-    //     },
-    //   },
+export const useQuestionStore = defineStore({
+    id: 'QuestionsOne',
+    state: () => ({
+        werk: 50,
+        sociaal: 50,
+        relatie: 50,
+        financieel: 50,
+        geluk: 50,
+        gezondheid: 50,
+        praktisch: 50
+    })
 })
+
+// actions are just methods (from Vue 2)
