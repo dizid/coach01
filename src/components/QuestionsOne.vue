@@ -2,8 +2,8 @@
 <div>
 <div><h2>Hoe tevreden ben je op de volgende gebieden?</h2>
  <h3>( Schuifje naar rechts is meer tevreden )</h3></div>
- <div><!--<FormKit type="form" v-model="questionsOneFromStore"  @submit="handleSubmit" submit-label="Verder.."> -->
-  <FormKit type="form" v-model="questionsOneFromStore"  @submit="handleSubmit" submit-label="Verder..">
+ <div>
+  <FormKit type="form" v-model="questionsOne"  @submit="handleSubmit" submit-label="Verder..">
 <FormKit name="werk" type="range" label="Werk" min="1" max="100"/>
 <FormKit name="sociaal" type="range" label="Sociaal" min="1" max="100"/>
 <FormKit name="relatie" type="range" label="Relatie" min="1" max="100"/>
@@ -17,18 +17,22 @@
 import { useQuestionStore } from '@/store/useQuestions'
 import { useRouter } from 'vue-router'
 
-// import { ref } from 'vue'  // TEST
-
-// goto TheCoaches.vue VIEW  TESt: goto About pag
+import { ref } from 'vue'  // TEST
 const router = useRouter()
-const handleSubmit =  () => {router.push('about')}
+const handleSubmit =  () => {
+  // add to store
+  questions.addQuestionsOne(questionsOne)
+  router.push('about')
+    } // goto TheCoaches.vue  TEST: goto About page
  
 // STORE
-const questionsOneFromStore = useQuestionStore()
+const questions = useQuestionStore()
 
 // TestModel
-// const formData = ref('')
-// console.log('formData:', formData)
+const questionsOne = ref('')
+console.log('questionsOne:', questionsOne)
+
+
 </script>
                
 <style>  
