@@ -7,7 +7,7 @@ export const useQuestionStore = defineStore({
         sociaal: '',
         relatie: '',
         financieel: '',
-        geluk: '',
+        geluk: '50',
         gezondheid: '',
         praktisch: '',
 
