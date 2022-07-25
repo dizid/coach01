@@ -3,7 +3,7 @@
     <p>De coach die het beste bij jou past is Paul van Schaik in Rotterdam</p>
     <p>Maak een afspraak op:  <a class="underline text-blue-600 hover:text-blue-800 visited:text-purple-600" href="https://www.earthequalsheaven.com/">Earth = Heaven</a></p>
    <div>
-    answerStore.werk: {{ answerStore.werk }}
+    Je hebt aangegeven dat je geluksnivo <span class="text-blue-600/75 font-weight: 600">{{ answerStore.geluk }}</span> is. Door een coachingtraject bij Paul kan dit zeker omhoog!
    </div>
   </div>
 </template>
