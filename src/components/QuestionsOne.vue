@@ -3,9 +3,9 @@
 <div><h2>Hoe tevreden ben je op de volgende gebieden?</h2>
  <h3>( Schuifje naar rechts is meer tevreden )</h3></div>
  <div>
-  <FormKit type="form" v-model="answerStore"  @submit="handleSubmit" submit-label="Verder..">
-<FormKit name="werk" type="range" label="Werk" min="1" max="100"/>
-<FormKit name="sociaal" type="range" label="Sociaal" min="1" max="100"/>
+  <FormKit type="form" @submit="handleSubmit" submit-label="Verder..">
+<FormKit name="werk" v-model="answerStore.werk" type="range" label="Werk" min="1" max="100"/>
+<FormKit name="sociaal" v-model="answerStore.sociaal" type="range" label="Sociaal" min="1" max="100"/>
 <FormKit name="relatie" type="range" label="Relatie" min="1" max="100"/>
 <FormKit name="financieel" type="range" label="Financieel" min="1" max="100"/>
 <FormKit name="geluk" type="range" label="Geluksnivo" min="1" max="100"/>
