@@ -3,7 +3,7 @@
 <div><h2>Hoe tevreden ben je op de volgende gebieden?</h2>
  <h3>( Schuifje naar rechts is meer tevreden )</h3></div>
  <div>
-  <FormKit type="form" v-model="questionsOne"  @submit="handleSubmit" submit-label="Verder..">
+  <FormKit type="form" v-model="answerStore"  @submit="handleSubmit" submit-label="Verder..">
 <FormKit name="werk" type="range" label="Werk" min="1" max="100"/>
 <FormKit name="sociaal" type="range" label="Sociaal" min="1" max="100"/>
 <FormKit name="relatie" type="range" label="Relatie" min="1" max="100"/>
@@ -11,30 +11,23 @@
 <FormKit name="geluk" type="range" label="Geluksnivo" min="1" max="100"/>
 <FormKit name="gezondheid" type="range" label="Gezondheid" min="1" max="100"/>
 <FormKit name="praktisch" type="range" label="Praktisch" min="1" max="100"/> 
-</FormKit></div></div>
+</FormKit></div>
+answerStore.geluk: {{ answerStore.geluk }}
+</div>
 </template>
 <script setup>
-import { useQuestionStore } from '@/store/useQuestions'
+import { useQuestionStore } from '@/stores/useQuestions'
 import { useRouter } from 'vue-router'
-
-import { ref } from 'vue'  // TEST
+// import { ref } from 'vue'  // TEST 
+// import { storeToRefs } from 'pinia'
+const answerStore = useQuestionStore()
 const router = useRouter()
 const handleSubmit =  () => {
-  // add to store
-  questions.addQuestionsOne(questionsOne)
-  router.push('about')
-    } // goto TheCoaches.vue  TEST: goto About page
- 
-// STORE
-const questions = useQuestionStore()
-
-// TestModel
-const questionsOne = ref('')
-console.log('questionsOne:', questionsOne)
-
-
-</script>
-               
+   console.log(answerStore) // add v-modeldata to store
+ router.push('about') // goto TheCoaches.vue  TEST: goto About page
+    } 
+ </script>
+             
 <style>  
   
   [data-type="submit"] .formkit-input {
