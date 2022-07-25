@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 
 export const useQuestionStore = defineStore({
     id: 'QuestionsOne',
-    state: () => ({
+    state: () => ({  // Default values - or not?
         werk: '',
         sociaal: '',
         relatie: '',
