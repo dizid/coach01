@@ -18,13 +18,14 @@
 // Imports
 import { useQuestionStore } from '@/stores/useQuestions'
 import { useRouter } from 'vue-router'
+
 // Connection with the Pinia store
 const answerStore = useQuestionStore()
+const router = useRouter()
 
 // After submitting the form - use the router
 const handleSubmit =  () => {
-  const router = useRouter()
-  router.push('about') // goto TheCoaches.vue  TEST: goto About page
+   router.push('about') // goto TheCoaches.vue  TEST: goto About page
     } 
  </script>
              
