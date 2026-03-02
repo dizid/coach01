@@ -22,3 +22,7 @@ npm run lint
 
 ### Customize configuration
 See [Configuration Reference](https://cli.vuejs.org/config/).
+
+## Backlog
+
+- [x] Create a dedicated Google Places API key for coachfinder (currently shares key with site-improver — rotate/restrict risk)

@@ -22,7 +22,7 @@
             <svg class="w-6 h-6 text-accent-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
             </svg>
-            <span class="font-medium">12 gecertificeerde coaches</span>
+            <span class="font-medium">{{ coachesStore.allCoaches.length || '' }} gecertificeerde coaches</span>
           </div>
           <div class="flex items-center gap-2">
             <svg class="w-6 h-6 text-accent-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -110,7 +110,23 @@
           Ontdek enkele van onze beste coaches
         </p>
 
-        <div class="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+        <!-- Loading state for top coaches -->
+        <div v-if="coachesStore.loading" class="flex justify-center gap-6 max-w-5xl mx-auto">
+          <div
+            v-for="i in 3"
+            :key="i"
+            class="bg-white rounded-2xl shadow-soft overflow-hidden w-full max-w-xs"
+          >
+            <div class="h-48 bg-neutral-100 animate-pulse"></div>
+            <div class="p-6 space-y-3">
+              <div class="h-5 bg-neutral-100 rounded animate-pulse w-3/4"></div>
+              <div class="h-4 bg-neutral-100 rounded animate-pulse w-1/2"></div>
+              <div class="h-4 bg-neutral-100 rounded animate-pulse w-full"></div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
           <div
             v-for="coach in topCoaches"
             :key="coach.id"
@@ -256,7 +272,7 @@ import { useCoachesStore } from '@/stores/useCoaches'
 // Router for navigation
 const router = useRouter()
 
-// Access coaches store
+// Access coaches store (also used for loading state in template)
 const coachesStore = useCoachesStore()
 
 // Get top-rated coaches for preview

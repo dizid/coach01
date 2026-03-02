@@ -197,10 +197,18 @@
     </div>
   </div>
 
-  <!-- Loading/Not Found State -->
+  <!-- Loading state -->
+  <div v-else-if="coachesStore.loading" class="min-h-screen bg-gradient-to-br from-primary-50 via-white to-accent-50 flex items-center justify-center">
+    <div class="text-center">
+      <div class="inline-block w-10 h-10 border-4 border-primary-200 border-t-primary-500 rounded-full animate-spin mb-4"></div>
+      <p class="text-neutral-500 text-lg">Laden...</p>
+    </div>
+  </div>
+
+  <!-- Not Found / Error State -->
   <div v-else class="min-h-screen bg-gradient-to-br from-primary-50 via-white to-accent-50 flex items-center justify-center">
     <div class="text-center">
-      <p class="text-xl text-neutral-600 mb-4">Coach niet gevonden</p>
+      <p class="text-xl text-neutral-600 mb-4">{{ coachesStore.error || 'Coach niet gevonden' }}</p>
       <button
         @click="$router.push('/coaches')"
         class="text-primary-600 hover:text-primary-700 font-medium underline"
@@ -226,7 +234,7 @@ const coachesStore = useCoachesStore()
 // Get coach ID from route params
 const coachId = computed(() => parseInt(route.params.id))
 
-// Get coach data
+// Get coach data — reactive so it updates after async fetch
 const coach = computed(() => coachesStore.getCoachById(coachId.value))
 
 /**
@@ -245,8 +253,13 @@ const contactCoach = () => {
   }
 }
 
-// Scroll to top on mount
-onMounted(() => {
+onMounted(async () => {
   window.scrollTo({ top: 0, behavior: 'smooth' })
+
+  // If coach not yet in local state (e.g. user navigated directly via URL),
+  // fetch it individually from the API
+  if (!coach.value) {
+    await coachesStore.fetchCoachById(coachId.value)
+  }
 })
 </script>

@@ -9,7 +9,7 @@
           Jouw perfecte coaches
         </h1>
         <p class="text-xl text-neutral-600 mb-6">
-          We hebben {{ matchedCoaches.length }} coaches gevonden die perfect bij jouw situatie passen
+          We hebben {{ displayedCoaches.length }} coaches gevonden die perfect bij jouw situatie passen
         </p>
 
         <!-- Match Summary -->
@@ -88,17 +88,35 @@
 
       <!-- Coach Cards Grid -->
       <div class="max-w-6xl mx-auto">
-        <div v-if="displayedCoaches.length === 0" class="text-center py-12">
-          <p class="text-xl text-neutral-600">Geen coaches gevonden met deze filters.</p>
+        <!-- Loading state -->
+        <div v-if="coachesStore.loading" class="text-center py-12">
+          <div class="inline-block w-10 h-10 border-4 border-primary-200 border-t-primary-500 rounded-full animate-spin mb-4"></div>
+          <p class="text-neutral-500 text-lg">Laden...</p>
+        </div>
+
+        <!-- Error state -->
+        <div v-else-if="coachesStore.error" class="text-center py-12">
+          <p class="text-red-600 text-lg mb-4">{{ coachesStore.error }}</p>
           <button
-            @click="resetFilters"
-            class="mt-4 text-primary-600 hover:text-primary-700 font-medium"
+            @click="coachesStore.fetchCoaches()"
+            class="text-primary-600 hover:text-primary-700 font-medium underline"
           >
-            Reset filters
+            Probeer opnieuw
           </button>
         </div>
 
-        <div v-else class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <template v-else>
+          <div v-if="displayedCoaches.length === 0" class="text-center py-12">
+            <p class="text-xl text-neutral-600">Geen coaches gevonden met deze filters.</p>
+            <button
+              @click="resetFilters"
+              class="mt-4 text-primary-600 hover:text-primary-700 font-medium"
+            >
+              Reset filters
+            </button>
+          </div>
+
+          <div v-else class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           <div
             v-for="(coach, index) in displayedCoaches"
             :key="coach.id"
@@ -189,7 +207,8 @@
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        </template>
       </div>
 
       <!-- Back to questionnaire -->

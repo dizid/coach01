@@ -173,7 +173,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useCoachesStore } from '@/stores/useCoaches'
 
 // Mobile menu state
@@ -187,6 +187,11 @@ const hasMatches = computed(() => coachesStore.matchedCoaches.length > 0)
 
 // Current year for footer
 const currentYear = new Date().getFullYear()
+
+// Load coaches from API on app mount
+onMounted(() => {
+  coachesStore.fetchCoaches()
+})
 </script>
 
 <style>

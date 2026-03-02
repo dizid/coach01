@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import coachesData from '@/data/coaches.json'
 
 /**
  * Store for managing coaches data and matching logic
@@ -9,9 +8,11 @@ export const useCoachesStore = defineStore({
     id: 'coaches',
 
     state: () => ({
-        allCoaches: coachesData,           // Full list of all coaches
+        allCoaches: [],                    // Full list of all coaches (loaded from API)
         matchedCoaches: [],                // Coaches matched to user answers
         selectedCoach: null,               // Currently selected coach for detail view
+        loading: false,                    // Loading state for async operations
+        error: null,                       // Error state for async operations
         filters: {
             location: '',
             maxPrice: null,
@@ -33,7 +34,7 @@ export const useCoachesStore = defineStore({
             // Filter by location
             if (state.filters.location) {
                 coaches = coaches.filter(coach =>
-                    coach.location.toLowerCase().includes(state.filters.location.toLowerCase())
+                    (coach.location || '').toLowerCase().includes(state.filters.location.toLowerCase())
                 )
             }
 
@@ -91,6 +92,54 @@ export const useCoachesStore = defineStore({
 
     actions: {
         /**
+         * Fetch all coaches from the API
+         * Sets allCoaches to the returned data
+         */
+        async fetchCoaches() {
+            this.loading = true
+            this.error = null
+            try {
+                const response = await fetch('/api/coaches')
+                if (!response.ok) {
+                    throw new Error(`API fout: ${response.status}`)
+                }
+                const data = await response.json()
+                this.allCoaches = data.coaches
+            } catch (err) {
+                this.error = err.message || 'Kon coaches niet laden'
+            } finally {
+                this.loading = false
+            }
+        },
+
+        /**
+         * Fetch a single coach by ID from the API
+         * Used as fallback when allCoaches is not yet loaded (e.g. direct URL access)
+         * @param {number} id - Coach ID
+         */
+        async fetchCoachById(id) {
+            this.loading = true
+            this.error = null
+            try {
+                const response = await fetch(`/api/coaches?id=${id}`)
+                if (!response.ok) {
+                    throw new Error(`Coach niet gevonden`)
+                }
+                const data = await response.json()
+                // Merge fetched coach into allCoaches if not already present
+                if (!this.allCoaches.find(c => c.id === data.id)) {
+                    this.allCoaches = [...this.allCoaches, data]
+                }
+                return data
+            } catch (err) {
+                this.error = err.message || 'Kon coach niet laden'
+                return null
+            } finally {
+                this.loading = false
+            }
+        },
+
+        /**
          * Match coaches based on user questionnaire answers
          * Uses intelligent scoring algorithm based on satisfaction levels
          * @param {Object} userAnswers - User's questionnaire answers
@@ -134,13 +183,13 @@ export const useCoachesStore = defineStore({
                 })
 
                 // Bonus points for high ratings
-                score += coach.rating * 2
+                score += (coach.rating || 0) * 2
 
                 // Bonus points for experience
-                score += coach.experience * 0.5
+                score += (coach.experience || 0) * 0.5
 
                 // Bonus for high review count (trust signal)
-                score += Math.log(coach.reviewCount) * 2
+                score += coach.reviewCount > 0 ? Math.log(coach.reviewCount) * 2 : 0
 
                 return {
                     ...coach,
@@ -209,7 +258,7 @@ export const useCoachesStore = defineStore({
         },
 
         /**
-         * Get coach by ID
+         * Get coach by ID — checks local state first, then falls back to API
          * @param {number} id - Coach ID
          * @returns {Object|null} Coach object or null
          */

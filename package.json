@@ -1,51 +1,34 @@
 {
-  "name": "coach",
-  "version": "0.1.0",
+  "name": "coachfinder",
+  "version": "0.2.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "serve": "vue-cli-service serve",
-    "build": "vue-cli-service build",
-    "lint": "vue-cli-service lint"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "collect": "node --env-file=.env scripts/run-pipeline.js",
+    "collect:google": "node --env-file=.env scripts/collectors/google-places.js",
+    "collect:nobco": "node --env-file=.env scripts/collectors/nobco-scraper.js",
+    "enrich": "node --env-file=.env scripts/enrichment/website-enricher.js"
   },
   "dependencies": {
     "@formkit/vue": "^1.0.0-beta.9",
-    "autoprefixer": "^10",
-    "core-js": "^3.8.3",
+    "@neondatabase/serverless": "^0.10.0",
     "pinia": "^2.0.16",
-    "postcss": "^8",
-    "tailwindcss": "^3",
+    "undici": "^7.22.0",
     "vue": "^3.2.13",
     "vue-router": "^4.1.2"
   },
   "devDependencies": {
-    "@babel/core": "^7.12.16",
-    "@babel/eslint-parser": "^7.12.16",
-    "@vue/cli-plugin-babel": "~5.0.0",
-    "@vue/cli-plugin-eslint": "~5.0.0",
-    "@vue/cli-plugin-router": "^5.0.8",
-    "@vue/cli-service": "~5.0.0",
-    "eslint": "^7.32.0",
-    "eslint-plugin-vue": "^8.0.3",
-    "vue-cli-plugin-tailwind": "~3.0.0"
-  },
-  "eslintConfig": {
-    "root": true,
-    "env": {
-      "node": true
-    },
-    "extends": [
-      "plugin:vue/vue3-essential",
-      "eslint:recommended"
-    ],
-    "parserOptions": {
-      "parser": "@babel/eslint-parser"
-    },
-    "rules": {}
-  },
-  "browserslist": [
-    "> 1%",
-    "last 2 versions",
-    "not dead",
-    "not ie 11"
-  ]
+    "@netlify/vite-plugin": "^2.10.3",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "autoprefixer": "^10",
+    "cheerio": "^1.0.0",
+    "node-fetch": "^3.3.0",
+    "p-limit": "^6.0.0",
+    "postcss": "^8",
+    "tailwindcss": "^3",
+    "vite": "^6.0.0"
+  }
 }
