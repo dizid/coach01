@@ -384,6 +384,11 @@ const submitQuestionnaire = async () => {
 
   isSubmitting.value = false
 
+  // Don't show email gate if coaches failed to load
+  if (coachesStore.allCoaches.length === 0) {
+    return
+  }
+
   // Show email gate before navigating to results
   showEmailGate.value = true
 }

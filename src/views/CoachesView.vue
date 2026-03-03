@@ -302,10 +302,28 @@ const retakeQuestionnaire = () => {
   router.push('/questionnaire')
 }
 
-// Only redirect if user has no matches AND no coaches loaded (came here directly without questionnaire)
-onMounted(() => {
-  if (matchedCoaches.value.length === 0 && coachesStore.allCoaches.length === 0) {
+// Redirect if user didn't go through questionnaire + email gate
+onMounted(async () => {
+  if (!questionStore.userEmail) {
     router.push('/questionnaire')
+    return
+  }
+  // Ensure coaches are loaded (handles API failure during questionnaire)
+  if (coachesStore.allCoaches.length === 0) {
+    await coachesStore.fetchCoaches()
+  }
+  // Re-run matching if coaches were reloaded
+  if (matchedCoaches.value.length === 0 && coachesStore.allCoaches.length > 0) {
+    const userAnswers = {
+      werk: questionStore.werk,
+      sociaal: questionStore.sociaal,
+      relatie: questionStore.relatie,
+      financieel: questionStore.financieel,
+      geluk: questionStore.geluk,
+      gezondheid: questionStore.gezondheid,
+      praktisch: questionStore.praktisch
+    }
+    coachesStore.matchCoaches(userAnswers)
   }
 })
 </script>
