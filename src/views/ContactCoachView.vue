@@ -186,6 +186,11 @@
             </p>
           </div>
 
+          <!-- Error message -->
+          <div v-if="submitError" class="bg-red-50 border-2 border-red-200 rounded-xl p-4 text-red-700 text-sm">
+            {{ submitError }}
+          </div>
+
           <!-- Submit Button -->
           <button
             type="submit"
@@ -239,7 +244,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCoachesStore } from '@/stores/useCoaches'
-import { useBookingsStore } from '@/stores/useBookings'
+import { useQuestionStore } from '@/stores/useQuestions'
 
 // Router
 const route = useRoute()
@@ -247,7 +252,7 @@ const router = useRouter()
 
 // Stores
 const coachesStore = useCoachesStore()
-const bookingsStore = useBookingsStore()
+const questionStore = useQuestionStore()
 
 // Get coach ID from route params
 const coachId = computed(() => parseInt(route.params.id))
@@ -255,10 +260,10 @@ const coachId = computed(() => parseInt(route.params.id))
 // Get coach data
 const coach = computed(() => coachesStore.getCoachById(coachId.value))
 
-// Form state
+// Form state — pre-fill name + email from questionnaire store if available
 const formData = ref({
-  userName: '',
-  userEmail: '',
+  userName: questionStore.userName || '',
+  userEmail: questionStore.userEmail || '',
   userPhone: '',
   sessionType: '',
   preferredDate: '',
@@ -269,6 +274,7 @@ const formData = ref({
 const isSubmitting = ref(false)
 const submitted = ref(false)
 const bookingId = ref('')
+const submitError = ref('')
 
 // Minimum date (today)
 const minDate = computed(() => {
@@ -293,48 +299,57 @@ const goBack = () => {
 }
 
 /**
- * Submit contact form and create booking with commission tracking
+ * Submit contact form — saves lead to DB and emails the coach via /api/contact.
  */
 const submitForm = async () => {
   if (!isFormValid.value || !coach.value) return
 
   isSubmitting.value = true
+  submitError.value = ''
 
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 1000))
+  try {
+    const response = await fetch('/api/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        coachId: coach.value.id,
+        userName: formData.value.userName,
+        userEmail: formData.value.userEmail,
+        userPhone: formData.value.userPhone || null,
+        sessionType: formData.value.sessionType,
+        preferredDate: formData.value.preferredDate || null,
+        message: formData.value.userMessage,
+        // Include questionnaire context so the coach gets the full picture
+        questionnaire: {
+          werk:         questionStore.werk,
+          sociaal:      questionStore.sociaal,
+          relatie:      questionStore.relatie,
+          financieel:   questionStore.financieel,
+          geluk:        questionStore.geluk,
+          gezondheid:   questionStore.gezondheid,
+          praktisch:    questionStore.praktisch,
+          userGoal:     questionStore.userGoal || null,
+          userTimeline: questionStore.userTimeline || null,
+          preferredLocation: questionStore.preferredLocation || null,
+          preferredPrice:    questionStore.preferredPrice || null,
+        },
+      }),
+    })
 
-  // Create booking with commission tracking
-  const booking = bookingsStore.createBooking({
-    coachId: coach.value.id,
-    coachName: coach.value.name,
-    userName: formData.value.userName,
-    userEmail: formData.value.userEmail,
-    userPhone: formData.value.userPhone,
-    userMessage: formData.value.userMessage,
-    sessionType: formData.value.sessionType,
-    preferredDate: formData.value.preferredDate || null,
-    coachPrice: coach.value.price,
-    commissionRate: coach.value.commissionRate
-  })
+    const data = await response.json()
 
-  // Send confirmation email (would be actual API call in production)
-  await bookingsStore.sendBookingConfirmation(booking)
+    if (!response.ok) {
+      throw new Error(data.error || 'Er ging iets mis. Probeer het opnieuw.')
+    }
 
-  bookingId.value = booking.id
-  isSubmitting.value = false
-  submitted.value = true
-
-  // Scroll to top to show success message
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-
-  // Log commission tracking for platform (in production this would be sent to analytics)
-  console.log('Commission tracked:', {
-    bookingId: booking.id,
-    coachId: coach.value.id,
-    commissionAmount: booking.commissionAmount,
-    commissionRate: coach.value.commissionRate,
-    affiliateId: booking.affiliateId
-  })
+    bookingId.value = data.leadToken
+    submitted.value = true
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  } catch (err) {
+    submitError.value = err.message || 'Er ging iets mis. Probeer het opnieuw.'
+  } finally {
+    isSubmitting.value = false
+  }
 }
 
 // Scroll to top on mount

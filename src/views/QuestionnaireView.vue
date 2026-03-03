@@ -1,4 +1,7 @@
 <template>
+  <!-- Email gate modal: shown after questionnaire completes, before showing results -->
+  <EmailGateModal v-if="showEmailGate" @confirmed="onEmailConfirmed" />
+
   <!-- Multi-step questionnaire with modern, friendly design -->
   <div class="min-h-screen bg-gradient-to-br from-primary-50 via-white to-accent-50 py-12">
     <div class="container mx-auto px-4 max-w-3xl">
@@ -297,6 +300,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuestionStore } from '@/stores/useQuestions'
 import { useCoachesStore } from '@/stores/useCoaches'
+import EmailGateModal from '@/components/EmailGateModal.vue'
 
 // Router for navigation
 const router = useRouter()
@@ -308,6 +312,7 @@ const coachesStore = useCoachesStore()
 // Local state
 const currentStep = ref(1)
 const isSubmitting = ref(false)
+const showEmailGate = ref(false)
 
 // Computed properties
 const progressPercentage = computed(() => {
@@ -374,7 +379,18 @@ const submitQuestionnaire = async () => {
 
   isSubmitting.value = false
 
-  // Navigate to results
+  // Show email gate before navigating to results
+  showEmailGate.value = true
+}
+
+/**
+ * Called when user confirms their email in the gate modal.
+ * Saves email + name to the store (pre-fills contact form later), then navigates.
+ */
+const onEmailConfirmed = ({ email, name }) => {
+  questionStore.userEmail = email
+  if (name) questionStore.userName = name
+  showEmailGate.value = false
   router.push('/coaches')
 }
 </script>

@@ -4,3 +4,6 @@
 
 [dev]
   command = "npm run dev"
+
+[functions."follow-up-scheduler"]
+  schedule = "0 9 * * *"

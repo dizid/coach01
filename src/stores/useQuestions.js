@@ -21,6 +21,8 @@ export const useQuestionStore = defineStore({
         userTimeline: '',      // When they want to achieve it
         preferredLocation: '', // Preferred coach location
         preferredPrice: '',    // Budget range
+        userEmail: '',         // Captured at email gate (pre-fills contact form)
+        userName: '',          // Captured at email gate (optional, pre-fills contact form)
 
         // Progress tracking
         currentStep: 1,        // Current questionnaire step
@@ -96,6 +98,8 @@ export const useQuestionStore = defineStore({
             this.userTimeline = ''
             this.preferredLocation = ''
             this.preferredPrice = ''
+            this.userEmail = ''
+            this.userName = ''
             this.currentStep = 1
             this.completedSteps = []
         },
