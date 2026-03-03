@@ -302,10 +302,9 @@ const retakeQuestionnaire = () => {
   router.push('/questionnaire')
 }
 
-// If no matches found, redirect to questionnaire
+// Only redirect if user has no matches AND no coaches loaded (came here directly without questionnaire)
 onMounted(() => {
-  if (matchedCoaches.value.length === 0) {
-    // No matches - either user came directly or needs to fill questionnaire
+  if (matchedCoaches.value.length === 0 && coachesStore.allCoaches.length === 0) {
     router.push('/questionnaire')
   }
 })

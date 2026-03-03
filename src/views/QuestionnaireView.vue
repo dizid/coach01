@@ -366,6 +366,11 @@ const submitQuestionnaire = async () => {
     praktisch: questionStore.praktisch
   }
 
+  // Ensure coaches are loaded before matching (user may have skipped the home page)
+  if (coachesStore.allCoaches.length === 0) {
+    await coachesStore.fetchCoaches()
+  }
+
   // Run matching algorithm
   coachesStore.matchCoaches(userAnswers)
 
