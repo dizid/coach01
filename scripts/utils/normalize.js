@@ -153,6 +153,24 @@ export function normalizeSpecialties(rawArray) {
   return Array.from(result);
 }
 
+/**
+ * Normalize a coach/business name for fuzzy dedup comparison.
+ * Strips common suffixes (coaching, praktijk, etc.), titles (drs, ir, mr),
+ * and non-alpha characters. Result is lowercased and trimmed.
+ * @param {string} name
+ * @returns {string}
+ */
+export function normalizeName(name) {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .replace(/\b(coaching|coach|praktijk|begeleiding|advies|consultancy|bv|b\.v\.|vof|v\.o\.f\.|eenmanszaak)\b/gi, '')
+    .replace(/\b(drs|dr|ir|mr|prof|ing|msc|ma|mba|bsc)\.?\b/gi, '')
+    .replace(/[^a-z\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Maps common Dutch city name variants to the canonical name
 const CITY_MAP = {
   '\'s-gravenhage': 'Den Haag',
@@ -168,9 +186,19 @@ const CITY_MAP = {
   'amsterdam noord': 'Amsterdam',
   'amsterdam west': 'Amsterdam',
   'amsterdam oost': 'Amsterdam',
+  'amsterdam nieuw-west': 'Amsterdam',
   'rotterdam centrum': 'Rotterdam',
+  'rotterdam zuid': 'Rotterdam',
+  'rotterdam noord': 'Rotterdam',
   'utrecht centrum': 'Utrecht',
   'eindhoven centrum': 'Eindhoven',
+  'rijswijk': 'Rijswijk',
+  'leidschendam-voorburg': 'Leidschendam',
+  'barendrecht': 'Barendrecht',
+  'capelle aan den ijssel': 'Capelle aan den IJssel',
+  'schiedam': 'Schiedam',
+  'vlaardingen': 'Vlaardingen',
+  'spijkenisse': 'Spijkenisse',
 };
 
 /**

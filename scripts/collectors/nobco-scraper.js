@@ -2,200 +2,227 @@ import 'dotenv/config';
 import * as cheerio from 'cheerio';
 import { sql } from '../utils/db.js';
 import { fetchIPv4 } from '../utils/fetch-ipv4.js';
-import { normalizeSpecialties, normalizeCity } from '../utils/normalize.js';
-import { findDuplicate } from '../utils/dedup.js';
+import { normalizeSpecialties, normalizeCity, normalizeName } from '../utils/normalize.js';
+import { findDuplicate, mergeCoachData } from '../utils/dedup.js';
+import { CITY_TO_PROVINCE } from '../data/dutch-municipalities.js';
 
 const BASE_URL = 'https://www.nobco.nl';
-const DIRECTORY_URL = `${BASE_URL}/vind-een-coach`;
 const USER_AGENT = 'CoachFinder Bot 1.0 (educational/research - contact: info@dizid.nl)';
 // Polite rate limit: 1 request per 2 seconds
 const REQUEST_DELAY_MS = 2000;
+const FETCH_TIMEOUT_MS = 15000;
 
-/**
- * Sleep for a given number of milliseconds.
- * @param {number} ms
- */
+// NOBCO has 4 coach sitemaps with ~700 profiles each (~2,800 total)
+const COACH_SITEMAPS = [
+  `${BASE_URL}/coach-sitemap.xml`,
+  `${BASE_URL}/coach-sitemap2.xml`,
+  `${BASE_URL}/coach-sitemap3.xml`,
+  `${BASE_URL}/coach-sitemap4.xml`,
+];
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Fetch a URL with polite headers and error handling.
+ * Fetch a URL with timeout and polite headers.
  * @param {string} url
- * @returns {Promise<string>} HTML text
+ * @returns {Promise<string>} response text
  */
 async function fetchPage(url) {
-  const response = await fetchIPv4(url, {
-    headers: {
-      'User-Agent': USER_AGENT,
-      'Accept': 'text/html,application/xhtml+xml',
-      'Accept-Language': 'nl-NL,nl;q=0.9',
-    },
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} for ${url}`);
-  }
-
-  return response.text();
-}
-
-/**
- * Check robots.txt to confirm we are allowed to scrape the directory.
- * @returns {Promise<boolean>}
- */
-async function checkRobotsTxt() {
   try {
-    const robotsTxt = await fetchPage(`${BASE_URL}/robots.txt`);
-    const lines = robotsTxt.split('\n').map((l) => l.trim().toLowerCase());
+    const response = await fetchIPv4(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml',
+        'Accept-Language': 'nl-NL,nl;q=0.9',
+      },
+    });
 
-    let inRelevantBlock = false;
-    for (const line of lines) {
-      if (line.startsWith('user-agent:')) {
-        inRelevantBlock = line.includes('*') || line.includes('coachfinder');
-      }
-      if (inRelevantBlock && line.startsWith('disallow:')) {
-        const disallowedPath = line.replace('disallow:', '').trim();
-        // Empty Disallow means "allow all" — skip it
-        if (!disallowedPath) continue;
-        if (disallowedPath === '/' || DIRECTORY_URL.includes(disallowedPath)) {
-          console.warn(`robots.txt disallows scraping: ${disallowedPath}`);
-          return false;
-        }
-      }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
     }
-    return true;
-  } catch (err) {
-    console.warn(`Could not fetch robots.txt: ${err.message} — proceeding with caution`);
-    return true;
+
+    return response.text();
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 /**
- * Parse coach listing items from a NOBCO search results page.
- * @param {string} html
- * @returns {Array<{ name: string, profileUrl: string, city: string, specialties: string[] }>}
+ * Parse coach profile URLs from a sitemap XML.
+ * @param {string} xml
+ * @returns {string[]} array of profile URLs
  */
-function parseListingPage(html) {
-  const $ = cheerio.load(html);
-  const coaches = [];
+function parseSitemap(xml) {
+  const $ = cheerio.load(xml, { xmlMode: true });
+  const urls = [];
 
-  // NOBCO uses a card/list layout — adjust selectors if site structure changes
-  $('[class*="coach"], [class*="Coach"], .member, .member-card, article.coach').each((_, el) => {
-    const $el = $(el);
-    const name = $el.find('[class*="name"], h2, h3, .title').first().text().trim();
-    const profileHref = $el.find('a').first().attr('href');
-    const profileUrl = profileHref ? (profileHref.startsWith('http') ? profileHref : `${BASE_URL}${profileHref}`) : null;
-    const city = $el.find('[class*="city"], [class*="location"], [class*="stad"]').first().text().trim();
-    const specialtyText = $el.find('[class*="specialty"], [class*="specialties"], [class*="expertise"]').text();
-    const specialties = specialtyText ? specialtyText.split(/[,;]/).map((s) => s.trim()).filter(Boolean) : [];
-
-    if (name) {
-      coaches.push({ name, profileUrl, city, specialties });
+  $('url > loc').each((_, el) => {
+    const url = $(el).text().trim();
+    if (url.includes('/coach/')) {
+      urls.push(url);
     }
   });
 
-  // Fallback: try generic link-based extraction if above yields nothing
-  if (coaches.length === 0) {
-    $('a[href*="/coaches/"], a[href*="/coach/"], a[href*="profiel"]').each((_, el) => {
-      const $el = $(el);
-      const name = $el.text().trim();
-      const profileUrl = $el.attr('href');
-      if (name && profileUrl) {
-        coaches.push({
-          name,
-          profileUrl: profileUrl.startsWith('http') ? profileUrl : `${BASE_URL}${profileUrl}`,
-          city: '',
-          specialties: [],
-        });
-      }
-    });
-  }
-
-  return coaches;
+  return urls;
 }
 
 /**
- * Parse detailed coach data from a NOBCO profile page.
+ * Parse a NOBCO coach profile page for structured data.
  * @param {string} html
  * @param {string} profileUrl
  * @returns {Object}
  */
-function parseProfilePage(html, profileUrl) {
+function parseProfile(html, profileUrl) {
   const $ = cheerio.load(html);
+  const fullText = $('body').text().replace(/\s+/g, ' ').trim();
 
-  // Extract bio text near "over mij" or profile description sections
-  let bio = '';
-  $('[class*="bio"], [class*="about"], [class*="description"], [class*="profiel"]').each((_, el) => {
+  // Name: usually in the main heading
+  let name = '';
+  $('h1').each((_, el) => {
     const text = $(el).text().trim();
-    if (text.length > bio.length) bio = text;
-  });
-
-  // Also check for sections with "over mij" heading
-  $('h1, h2, h3, h4').each((_, el) => {
-    const heading = $(el).text().toLowerCase();
-    if (heading.includes('over mij') || heading.includes('werkwijze')) {
-      const siblingText = $(el).next('p, div').text().trim();
-      if (siblingText.length > bio.length) bio = siblingText;
+    if (text && text.length > 2 && text.length < 100) {
+      name = text;
+      return false;
     }
   });
 
-  // Specialties
+  // Bio: search for "over mij", profile description, or large text blocks
+  let bio = '';
+  $('[class*="bio"], [class*="about"], [class*="description"], [class*="profiel"], [class*="content"]').each((_, el) => {
+    const text = $(el).text().trim();
+    if (text.length > bio.length && text.length < 5000) bio = text;
+  });
+
+  // Also check for headings with "over" or profile sections
+  $('h2, h3, h4').each((_, el) => {
+    const heading = $(el).text().toLowerCase();
+    if (heading.includes('over') || heading.includes('profiel') || heading.includes('werkwijze')) {
+      let text = '';
+      $(el).nextAll('p, div').slice(0, 4).each((__, sib) => {
+        text += ' ' + $(sib).text().trim();
+      });
+      if (text.trim().length > bio.length) bio = text.trim();
+    }
+  });
+
+  // Fallback bio from meta
+  if (bio.length < 50) {
+    const metaDesc = $('meta[name="description"]').attr('content') || '';
+    if (metaDesc.length > bio.length) bio = metaDesc;
+  }
+
+  // Specialties: look for specific sections and extract keywords
   const rawSpecialties = [];
-  $('[class*="specialty"], [class*="expertise"], [class*="specialisme"]').each((_, el) => {
-    $(el).find('li, span, a').each((__, item) => {
+  $('[class*="special"], [class*="expertise"], [class*="thema"], [class*="aanbod"]').each((_, el) => {
+    $(el).find('li, span, a, p').each((__, item) => {
       const text = $(item).text().trim();
-      if (text) rawSpecialties.push(text);
+      if (text && text.length < 80) rawSpecialties.push(text);
     });
     if (rawSpecialties.length === 0) {
       const text = $(el).text().trim();
       text.split(/[,;]/).forEach((s) => {
         const trimmed = s.trim();
-        if (trimmed) rawSpecialties.push(trimmed);
+        if (trimmed && trimmed.length < 80) rawSpecialties.push(trimmed);
       });
     }
   });
 
+  // Also detect specialties from full text keywords
+  const keywordSpecialties = [
+    'burnout', 'stress', 'loopbaan', 'leiderschap', 'relatie',
+    'mindfulness', 'persoonlijke groei', 'zelfvertrouwen', 'business',
+    'executive', 'carriere', 'communicatie', 'balans', 'gezondheid',
+    'life coach', 'team', 'angst', 'verandering',
+  ];
+  const textLower = fullText.toLowerCase();
+  for (const kw of keywordSpecialties) {
+    if (textLower.includes(kw)) rawSpecialties.push(kw);
+  }
+
   // Certifications
   const certifications = [];
-  $('[class*="certif"], [class*="opleiding"], [class*="accredit"]').each((_, el) => {
+  const certKeywords = ['nobco', 'emcc', 'icf', 'noloc', 'eqa', 'certified', 'gecertificeerd', 'accreditatie', 'register'];
+  $('p, li, span, [class*="cert"], [class*="accred"], [class*="keurmerk"]').each((_, el) => {
     const text = $(el).text().trim();
-    if (text) certifications.push(text);
-  });
-
-  // Website link
-  let website = null;
-  $('a[href^="http"]').each((_, el) => {
-    const href = $(el).attr('href');
-    if (href && !href.includes('nobco.nl') && !href.includes('mailto:')) {
-      website = href;
-      return false; // break
+    if (certKeywords.some((kw) => text.toLowerCase().includes(kw)) && text.length < 200) {
+      certifications.push(text.slice(0, 100));
     }
   });
 
-  // Location
-  let location = '';
-  $('[class*="location"], [class*="address"], [class*="locatie"], [class*="stad"]').each((_, el) => {
-    const text = $(el).text().trim();
-    if (text.length > 0 && text.length > location.length) location = text;
+  // Always add NOBCO as certification since this is the NOBCO directory
+  if (!certifications.some((c) => c.toLowerCase().includes('nobco'))) {
+    certifications.push('NOBCO geregistreerd');
+  }
+
+  // Website (external link)
+  let website = null;
+  $('a[href^="http"]').each((_, el) => {
+    const href = $(el).attr('href');
+    if (href && !href.includes('nobco.nl') && !href.includes('mailto:') &&
+        !href.includes('facebook.com') && !href.includes('linkedin.com') &&
+        !href.includes('twitter.com') && !href.includes('instagram.com')) {
+      website = href;
+      return false;
+    }
   });
 
-  // City from location or address
-  let city = '';
-  const cityMatch = location.match(/\b([A-Z][a-z]+(?: [A-Z][a-z]+)*)\s*$/) ||
-                    location.match(/\d{4}\s*[A-Z]{2}\s+([A-Za-z ]+)/);
-  if (cityMatch) city = cityMatch[1].trim();
+  // Email
+  let email = null;
+  $('a[href^="mailto:"]').each((_, el) => {
+    email = $(el).attr('href').replace('mailto:', '').split('?')[0].trim();
+    return false;
+  });
+  if (!email) {
+    const emailMatch = fullText.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+    if (emailMatch) email = emailMatch[0];
+  }
 
-  // Meta description as bio fallback
-  if (!bio) {
-    bio = $('meta[name="description"]').attr('content') || '';
+  // Phone
+  let phone = null;
+  $('a[href^="tel:"]').each((_, el) => {
+    phone = $(el).attr('href').replace('tel:', '').trim();
+    return false;
+  });
+
+  // Location / city
+  let location = '';
+  let city = '';
+  $('[class*="location"], [class*="address"], [class*="locatie"], [class*="stad"], [class*="plaats"]').each((_, el) => {
+    const text = $(el).text().trim();
+    if (text.length > 0 && text.length < 200 && text.length > location.length) {
+      location = text;
+    }
+  });
+
+  // Try to extract city from location
+  if (location) {
+    const cityMatch = location.match(/\d{4}\s*[A-Z]{2}\s+([A-Za-z\s]+)/) ||
+                      location.match(/\b([A-Z][a-z]+(?: [a-z]+ )?[A-Z][a-z]+)\s*$/);
+    if (cityMatch) city = cityMatch[1].trim();
+  }
+
+  // Also check for structured address data
+  if (!city) {
+    $('[itemprop="addressLocality"], [class*="city"]').each((_, el) => {
+      city = $(el).text().trim();
+      return false;
+    });
   }
 
   return {
-    bio: bio.slice(0, 2000), // cap bio length
+    name,
+    bio: bio.slice(0, 2000),
     specialties: normalizeSpecialties(rawSpecialties),
-    certifications: certifications.slice(0, 10),
+    certifications: [...new Set(certifications)].slice(0, 10),
     website,
+    email,
+    phone,
     location,
     city: normalizeCity(city),
     source_url: profileUrl,
@@ -203,174 +230,159 @@ function parseProfilePage(html, profileUrl) {
 }
 
 /**
- * Get total number of pages from the listing page.
- * @param {string} html
- * @returns {number}
- */
-function getTotalPages(html) {
-  const $ = cheerio.load(html);
-  let maxPage = 1;
-
-  // Look for pagination links
-  $('[class*="pag"] a, .pagination a, nav a').each((_, el) => {
-    const text = $(el).text().trim();
-    const num = parseInt(text, 10);
-    if (!isNaN(num) && num > maxPage) maxPage = num;
-  });
-
-  return maxPage;
-}
-
-/**
  * Upsert or enrich a coach from NOBCO data.
- * If a duplicate is found by name+city, enrich that record.
- * Otherwise, insert a new record.
  * @param {Object} coach
+ * @returns {Promise<'inserted'|'merged'|'skipped'>}
  */
 async function upsertNobcoCoach(coach) {
+  if (!coach.name || coach.name.length < 3) return 'skipped';
+
+  const province = CITY_TO_PROVINCE[coach.city] || null;
   const existingId = await findDuplicate(coach);
 
   if (existingId) {
-    // Enrich existing record with NOBCO data
-    await sql`
-      UPDATE coaches SET
-        bio           = COALESCE(NULLIF(${coach.bio}, ''), bio),
-        specialties   = CASE WHEN array_length(${coach.specialties}::text[], 1) > 0 THEN ${coach.specialties}::text[] ELSE specialties END,
-        certifications = CASE WHEN array_length(${coach.certifications}::text[], 1) > 0 THEN ${coach.certifications}::text[] ELSE certifications END,
-        website       = COALESCE(NULLIF(${coach.website}, ''), website),
-        source_url    = COALESCE(NULLIF(${coach.source_url}, ''), source_url),
-        updated_at    = NOW()
-      WHERE id = ${existingId}
-    `;
-    return { action: 'enriched' };
+    // Merge NOBCO data into existing record
+    await mergeCoachData(existingId, {
+      ...coach,
+      province,
+      name_normalized: normalizeName(coach.name),
+    }, 'nobco');
+
+    // Also update certifications and specialties if we have better data
+    if (coach.certifications?.length > 0) {
+      await sql`
+        UPDATE coaches SET
+          certifications = CASE
+            WHEN array_length(certifications, 1) IS NULL OR array_length(certifications, 1) < ${coach.certifications.length}
+            THEN ${coach.certifications}
+            ELSE certifications
+          END
+        WHERE id = ${existingId}
+      `;
+    }
+    if (coach.specialties?.length > 0) {
+      await sql`
+        UPDATE coaches SET
+          specialties = CASE
+            WHEN array_length(specialties, 1) IS NULL OR array_length(specialties, 1) < ${coach.specialties.length}
+            THEN ${coach.specialties}
+            ELSE specialties
+          END
+        WHERE id = ${existingId}
+      `;
+    }
+
+    return 'merged';
   }
 
-  // Insert new coach from NOBCO
-  await sql`
-    INSERT INTO coaches (
-      name, bio, specialties, certifications, city, location,
-      website, source, source_url, active, enriched
-    ) VALUES (
-      ${coach.name},
-      ${coach.bio || null},
-      ${coach.specialties},
-      ${coach.certifications},
-      ${coach.city || null},
-      ${coach.location || null},
-      ${coach.website || null},
-      'nobco',
-      ${coach.source_url || null},
-      TRUE,
-      FALSE
-    )
-    ON CONFLICT DO NOTHING
-  `;
-  return { action: 'inserted' };
+  // Insert new coach
+  try {
+    await sql`
+      INSERT INTO coaches (
+        name, bio, specialties, certifications, city, province, location,
+        website, email, phone, source, source_url, name_normalized, data_sources,
+        active, enriched
+      ) VALUES (
+        ${coach.name},
+        ${coach.bio || null},
+        ${coach.specialties || []},
+        ${coach.certifications || []},
+        ${coach.city || null},
+        ${province},
+        ${coach.location || null},
+        ${coach.website || null},
+        ${coach.email || null},
+        ${coach.phone || null},
+        'nobco',
+        ${coach.source_url},
+        ${normalizeName(coach.name)},
+        ${['nobco']},
+        TRUE,
+        ${!!coach.website}
+      )
+    `;
+    return 'inserted';
+  } catch (err) {
+    if (err.message?.includes('unique') || err.message?.includes('duplicate')) {
+      return 'skipped';
+    }
+    throw err;
+  }
 }
 
 /**
- * Main entry point.
+ * Main entry point — scrape NOBCO coach profiles via sitemaps.
  */
 async function main() {
-  console.log('Starting NOBCO scraper...');
-
-  const allowed = await checkRobotsTxt();
-  if (!allowed) {
-    console.error('robots.txt disallows scraping NOBCO. Aborting.');
-    process.exit(1);
-  }
-
-  // Fetch first page to determine total pages
-  console.log(`Fetching ${DIRECTORY_URL} ...`);
-  let firstPageHtml;
-  try {
-    firstPageHtml = await fetchPage(DIRECTORY_URL);
-  } catch (err) {
-    console.error(`Failed to fetch NOBCO directory: ${err.message}`);
-    process.exit(1);
-  }
-
-  const totalPages = getTotalPages(firstPageHtml);
-  console.log(`Found ${totalPages} pages to scrape`);
+  console.log('Starting NOBCO scraper (sitemap-based)...');
+  console.log(`Sitemaps to process: ${COACH_SITEMAPS.length}`);
 
   let totalFound = 0;
   let totalInserted = 0;
-  let totalEnriched = 0;
+  let totalMerged = 0;
+  let totalFailed = 0;
 
-  // Process all pages
-  for (let page = 1; page <= totalPages; page++) {
-    const pageUrl = page === 1 ? DIRECTORY_URL : `${DIRECTORY_URL}?page=${page}`;
-    console.log(`\nPage ${page}/${totalPages}: ${pageUrl}`);
+  for (const sitemapUrl of COACH_SITEMAPS) {
+    console.log(`\nFetching sitemap: ${sitemapUrl}`);
 
-    let html;
+    let sitemapXml;
     try {
-      html = page === 1 ? firstPageHtml : await fetchPage(pageUrl);
+      sitemapXml = await fetchPage(sitemapUrl);
     } catch (err) {
-      console.error(`  Failed to fetch page ${page}: ${err.message}`);
-      await sleep(REQUEST_DELAY_MS);
+      console.error(`  Failed to fetch sitemap: ${err.message}`);
       continue;
     }
 
-    const listings = parseListingPage(html);
-    console.log(`  Found ${listings.length} coaches on this page`);
-    totalFound += listings.length;
+    const profileUrls = parseSitemap(sitemapXml);
+    console.log(`  Found ${profileUrls.length} coach profiles`);
+    totalFound += profileUrls.length;
 
-    for (const listing of listings) {
-      await sleep(REQUEST_DELAY_MS); // polite delay between requests
-
-      let profileData = {};
-      if (listing.profileUrl) {
-        try {
-          const profileHtml = await fetchPage(listing.profileUrl);
-          profileData = parseProfilePage(profileHtml, listing.profileUrl);
-        } catch (err) {
-          console.error(`  Failed to fetch profile ${listing.profileUrl}: ${err.message}`);
-        }
-      }
-
-      const coach = {
-        name: listing.name,
-        city: normalizeCity(profileData.city || listing.city),
-        location: profileData.location || '',
-        bio: profileData.bio || '',
-        specialties: normalizeSpecialties([...listing.specialties, ...(profileData.specialties || [])]),
-        certifications: profileData.certifications || [],
-        website: profileData.website || null,
-        source_url: listing.profileUrl || null,
-      };
+    for (let i = 0; i < profileUrls.length; i++) {
+      const profileUrl = profileUrls[i];
 
       try {
-        const result = await upsertNobcoCoach(coach);
-        if (result.action === 'inserted') {
-          totalInserted++;
-          console.log(`  + Inserted: ${coach.name} (${coach.city})`);
-        } else {
-          totalEnriched++;
-          console.log(`  ~ Enriched: ${coach.name} (${coach.city})`);
+        const html = await fetchPage(profileUrl);
+        const coach = parseProfile(html, profileUrl);
+
+        if (!coach.name) {
+          totalFailed++;
+          continue;
+        }
+
+        const action = await upsertNobcoCoach(coach);
+        if (action === 'inserted') totalInserted++;
+        if (action === 'merged') totalMerged++;
+
+        if ((i + 1) % 50 === 0) {
+          console.log(`    Progress: ${i + 1}/${profileUrls.length} — new: ${totalInserted}, merged: ${totalMerged}`);
         }
       } catch (err) {
-        console.error(`  Error saving ${coach.name}: ${err.message}`);
+        totalFailed++;
+        if ((i + 1) % 100 === 0) {
+          console.error(`    Failed ${profileUrl}: ${err.message}`);
+        }
       }
+
+      // Polite delay
+      await sleep(REQUEST_DELAY_MS);
     }
 
-    // Log the run for this page
-    try {
-      await sql`
-        INSERT INTO collection_runs (source, search_term, city, coaches_found, coaches_new, status)
-        VALUES ('nobco', ${`page-${page}`}, 'NL', ${listings.length}, ${totalInserted}, 'completed')
-      `;
-    } catch (err) {
-      console.error('Failed to log run:', err.message);
-    }
-
-    await sleep(REQUEST_DELAY_MS);
+    // Log run for this sitemap
+    const sitemapName = sitemapUrl.split('/').pop();
+    await sql`
+      INSERT INTO collection_runs (source, search_term, city, coaches_found, coaches_new, status)
+      VALUES ('nobco', ${sitemapName}, 'NL', ${profileUrls.length}, ${totalInserted}, 'completed')
+    `.catch(() => {});
   }
 
+  // Final summary
+  const [{ count }] = await sql`SELECT COUNT(*) AS count FROM coaches WHERE 'nobco' = ANY(data_sources)`;
   console.log('\n=== NOBCO Scraper Summary ===');
-  console.log(`  Pages scraped:    ${totalPages}`);
-  console.log(`  Coaches found:    ${totalFound}`);
-  console.log(`  New coaches:      ${totalInserted}`);
-  console.log(`  Enriched existing:${totalEnriched}`);
+  console.log(`  Profiles found:     ${totalFound}`);
+  console.log(`  New coaches added:  ${totalInserted}`);
+  console.log(`  Existing enriched:  ${totalMerged}`);
+  console.log(`  Failed to parse:    ${totalFailed}`);
+  console.log(`  Total with NOBCO:   ${count}`);
 }
 
 main().catch((err) => {

@@ -60,6 +60,30 @@ const routes = [
     }
   },
   {
+    path: '/privacy',
+    name: 'privacy',
+    component: () => import('../views/PrivacyView.vue'),
+    meta: {
+      title: 'Privacy Beleid - CoachMatch'
+    }
+  },
+  {
+    path: '/terms',
+    name: 'terms',
+    component: () => import('../views/TermsView.vue'),
+    meta: {
+      title: 'Algemene Voorwaarden - CoachMatch'
+    }
+  },
+  {
+    path: '/contact',
+    name: 'contact',
+    component: () => import('../views/ContactView.vue'),
+    meta: {
+      title: 'Contact - CoachMatch'
+    }
+  },
+  {
     // Catch-all route for 404 - redirect to home
     path: '/:pathMatch(.*)*',
     redirect: '/'

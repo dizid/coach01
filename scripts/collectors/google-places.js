@@ -2,26 +2,24 @@ import 'dotenv/config';
 import pLimit from 'p-limit';
 import { sql } from '../utils/db.js';
 import { fetchIPv4 } from '../utils/fetch-ipv4.js';
-import { normalizeCity } from '../utils/normalize.js';
+import { normalizeCity, normalizeName } from '../utils/normalize.js';
+import { MUNICIPALITIES } from '../data/dutch-municipalities.js';
 
 const API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 if (!API_KEY) throw new Error('GOOGLE_PLACES_API_KEY environment variable is required');
 
 const PLACES_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 
-// 40 Dutch cities to search
-const CITIES = [
-  'Amsterdam', 'Rotterdam', 'Den Haag', 'Utrecht', 'Eindhoven',
-  'Groningen', 'Tilburg', 'Almere', 'Breda', 'Nijmegen',
-  'Haarlem', 'Arnhem', 'Enschede', 'Amersfoort', 'Apeldoorn',
-  'Den Bosch', 'Zwolle', 'Maastricht', 'Leiden', 'Dordrecht',
-  'Zoetermeer', 'Leeuwarden', 'Deventer', 'Delft', 'Alkmaar',
-  'Hilversum', 'Heerlen', 'Oss', 'Gouda', 'Middelburg',
-  'Ede', 'Venlo', 'Amstelveen', 'Zeist', 'Nieuwegein',
-  'Veenendaal', 'Alphen aan den Rijn', 'Roosendaal', 'Leidschendam', 'Zaanstad',
-];
+// Use municipalities data file — 150 cities instead of original 40
+const CITIES = MUNICIPALITIES.map((m) => m.name);
 
-// 17 coaching search terms
+// Province lookup from municipalities data
+const CITY_PROVINCE = {};
+for (const m of MUNICIPALITIES) {
+  CITY_PROVINCE[m.name] = m.province;
+}
+
+// 25 coaching search terms (expanded from 17)
 const SEARCH_TERMS = [
   'life coach',
   'loopbaancoach',
@@ -40,10 +38,23 @@ const SEARCH_TERMS = [
   'NLP coach',
   'personal coach',
   'career coach',
+  // New terms
+  'teamcoach',
+  'organisatiecoach',
+  'coach voor ondernemers',
+  'HSP coach',
+  'ADHD coach',
+  'rouwcoach',
+  'opvoedcoach',
+  'financieel coach',
 ];
 
 // Max 2 concurrent API requests to respect rate limits
 const limit = pLimit(2);
+
+// Optional budget cap: max API requests per run (0 = unlimited)
+const MAX_REQUESTS = parseInt(process.env.GOOGLE_MAX_REQUESTS || '0', 10);
+let requestCount = 0;
 
 /**
  * Search Google Places API for a given term and city.
@@ -52,6 +63,11 @@ const limit = pLimit(2);
  * @returns {Promise<Object[]>} array of raw place objects
  */
 async function searchPlaces(searchTerm, city) {
+  if (MAX_REQUESTS > 0 && requestCount >= MAX_REQUESTS) {
+    return []; // Budget cap reached
+  }
+  requestCount++;
+
   const response = await fetchIPv4(PLACES_SEARCH_URL, {
     method: 'POST',
     headers: {
@@ -144,14 +160,16 @@ function extractAvailability(regularOpeningHours) {
 async function upsertCoach(coach) {
   const rows = await sql`
     INSERT INTO coaches (
-      name, location, city, latitude, longitude,
+      name, location, city, province, latitude, longitude,
       rating, review_count, website, phone,
       google_place_id, image, availability, source, source_url,
+      name_normalized, data_sources,
       active, enriched
     ) VALUES (
       ${coach.name},
       ${coach.location},
       ${coach.city},
+      ${coach.province},
       ${coach.latitude},
       ${coach.longitude},
       ${coach.rating},
@@ -163,6 +181,8 @@ async function upsertCoach(coach) {
       ${coach.availability},
       ${coach.source},
       ${coach.source_url},
+      ${coach.name_normalized},
+      ${['google_places']},
       TRUE,
       FALSE
     )
@@ -174,6 +194,12 @@ async function upsertCoach(coach) {
       phone       = COALESCE(EXCLUDED.phone, coaches.phone),
       image       = COALESCE(EXCLUDED.image, coaches.image),
       availability = COALESCE(EXCLUDED.availability, coaches.availability),
+      province    = COALESCE(EXCLUDED.province, coaches.province),
+      name_normalized = COALESCE(EXCLUDED.name_normalized, coaches.name_normalized),
+      data_sources = CASE
+        WHEN 'google_places' = ANY(coaches.data_sources) THEN coaches.data_sources
+        ELSE array_append(coaches.data_sources, 'google_places')
+      END,
       updated_at  = NOW()
     RETURNING (xmax = 0) AS inserted
   `;
@@ -182,13 +208,13 @@ async function upsertCoach(coach) {
 
 /**
  * Log a collection run to the database.
- * @param {{ source: string, search_term: string, city: string, coaches_found: number, coaches_new: number, status: string }} run
+ * @param {{ source: string, search_term: string, city: string, coaches_found: number, coaches_new: number, status: string, duration_ms?: number, errors?: number }} run
  */
 async function logRun(run) {
   try {
     await sql`
-      INSERT INTO collection_runs (source, search_term, city, coaches_found, coaches_new, status)
-      VALUES (${run.source}, ${run.search_term}, ${run.city}, ${run.coaches_found}, ${run.coaches_new}, ${run.status})
+      INSERT INTO collection_runs (source, search_term, city, coaches_found, coaches_new, status, duration_ms, errors)
+      VALUES (${run.source}, ${run.search_term}, ${run.city}, ${run.coaches_found}, ${run.coaches_new}, ${run.status}, ${run.duration_ms || null}, ${run.errors || 0})
     `;
   } catch (err) {
     console.error('Failed to log collection run:', err.message);
@@ -204,6 +230,8 @@ async function logRun(run) {
 async function processSearch(searchTerm, city) {
   let found = 0;
   let inserted = 0;
+  let errors = 0;
+  const startTime = Date.now();
 
   try {
     const places = await searchPlaces(searchTerm, city);
@@ -220,10 +248,14 @@ async function processSearch(searchTerm, city) {
           ? buildPhotoUrl(place.photos[0].name)
           : null;
 
+        // Look up province from our municipality data
+        const province = CITY_PROVINCE[normalizedCity] || CITY_PROVINCE[city] || null;
+
         const coach = {
           name: place.displayName?.text || '',
           location: place.formattedAddress || null,
           city: normalizedCity,
+          province,
           latitude: place.location?.latitude ?? null,
           longitude: place.location?.longitude ?? null,
           rating: place.rating ?? null,
@@ -235,6 +267,7 @@ async function processSearch(searchTerm, city) {
           availability: extractAvailability(place.regularOpeningHours),
           source: 'google_places',
           source_url: place.googleMapsUri || null,
+          name_normalized: normalizeName(place.displayName?.text || ''),
         };
 
         if (!coach.name || !coach.google_place_id) continue;
@@ -242,10 +275,12 @@ async function processSearch(searchTerm, city) {
         const result = await upsertCoach(coach);
         if (result.inserted) inserted++;
       } catch (err) {
+        errors++;
         console.error(`  Error upserting place "${place.displayName?.text}": ${err.message}`);
       }
     }
   } catch (err) {
+    errors++;
     console.error(`  Search failed [${searchTerm} / ${city}]: ${err.message}`);
   }
 
@@ -255,7 +290,9 @@ async function processSearch(searchTerm, city) {
     city,
     coaches_found: found,
     coaches_new: inserted,
-    status: 'completed',
+    status: errors > 0 ? 'completed_with_errors' : 'completed',
+    duration_ms: Date.now() - startTime,
+    errors,
   });
 
   return { found, inserted };
@@ -267,6 +304,9 @@ async function processSearch(searchTerm, city) {
 async function main() {
   const total = CITIES.length * SEARCH_TERMS.length;
   console.log(`Starting Google Places collection: ${CITIES.length} cities × ${SEARCH_TERMS.length} terms = ${total} searches`);
+  if (MAX_REQUESTS > 0) {
+    console.log(`Budget cap: ${MAX_REQUESTS} API requests`);
+  }
 
   let totalFound = 0;
   let totalInserted = 0;
@@ -283,7 +323,7 @@ async function main() {
           totalInserted += result.inserted;
           completed++;
 
-          if (completed % 20 === 0 || completed === total) {
+          if (completed % 50 === 0 || completed === total) {
             console.log(`  Progress: ${completed}/${total} searches — found ${totalFound}, new ${totalInserted}`);
           }
         })
@@ -300,6 +340,9 @@ async function main() {
   console.log(`  Results found:      ${totalFound}`);
   console.log(`  New coaches added:  ${totalInserted}`);
   console.log(`  Total in DB:        ${count}`);
+  if (MAX_REQUESTS > 0) {
+    console.log(`  API requests used:  ${requestCount}/${MAX_REQUESTS}`);
+  }
 }
 
 main().catch((err) => {

@@ -7,10 +7,17 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "collect": "node --env-file=.env scripts/run-pipeline.js",
+    "pipeline": "node --env-file=.env scripts/run-pipeline.js",
+    "collect": "node --env-file=.env scripts/run-pipeline.js --collect",
     "collect:google": "node --env-file=.env scripts/collectors/google-places.js",
+    "collect:kvk": "node --env-file=.env scripts/collectors/kvk-collector.js",
     "collect:nobco": "node --env-file=.env scripts/collectors/nobco-scraper.js",
-    "enrich": "node --env-file=.env scripts/enrichment/website-enricher.js"
+    "collect:vind": "node --env-file=.env scripts/collectors/vind-een-coach.js",
+    "collect:assoc": "node --env-file=.env scripts/collectors/association-scraper.js",
+    "enrich": "node --env-file=.env scripts/enrichment/website-enricher.js",
+    "enrich:reenrich": "node --env-file=.env scripts/enrichment/website-enricher.js --reenrich",
+    "enrich:provinces": "node --env-file=.env scripts/enrichment/province-enricher.js",
+    "score": "node --env-file=.env scripts/enrichment/quality-scorer.js"
   },
   "dependencies": {
     "@formkit/vue": "^1.0.0-beta.9",

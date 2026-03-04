@@ -10,6 +10,12 @@ const REQUEST_DELAY_MS = 3000;
 // Timeout for website fetches
 const FETCH_TIMEOUT_MS = 10000;
 
+// Re-enrich mode: re-process low-quality coaches
+const REENRICH_MODE = process.argv.includes('--reenrich');
+
+// Subpages to check if main page doesn't yield enough data
+const SUBPAGES = ['/over-mij', '/about', '/over-ons', '/tarieven', '/prijzen', '/prices', '/contact'];
+
 /**
  * Sleep for a given number of milliseconds.
  * @param {number} ms
@@ -58,7 +64,7 @@ function extractBio($) {
   let bio = '';
 
   // Check headings for over mij / about / werkwijze
-  const bioKeywords = ['over mij', 'over ons', 'about', 'wie ben ik', 'wie zijn wij', 'werkwijze'];
+  const bioKeywords = ['over mij', 'over ons', 'about', 'wie ben ik', 'wie zijn wij', 'werkwijze', 'mijn verhaal'];
   $('h1, h2, h3, h4').each((_, el) => {
     const headingText = $(el).text().toLowerCase().trim();
     if (bioKeywords.some((kw) => headingText.includes(kw))) {
@@ -99,7 +105,7 @@ function extractBio($) {
  * @returns {{ price: number|null, price_type: string }}
  */
 function extractPrice($, fullText) {
-  const priceKeywords = ['tarief', 'prijs', 'kosten', 'investering', 'sessie', 'per uur', 'per sessie'];
+  const priceKeywords = ['tarief', 'prijs', 'kosten', 'investering', 'sessie', 'per uur', 'per sessie', 'consult', 'intake'];
 
   // Search page text for euro amounts near price keywords
   for (const keyword of priceKeywords) {
@@ -127,6 +133,17 @@ function extractPrice($, fullText) {
     }
   }
 
+  // Also try to find prices without keywords (e.g. just "€85" on a pricing page)
+  const allEuros = fullText.match(/€\s*(\d+(?:[.,]\d+)?)/g);
+  if (allEuros) {
+    for (const match of allEuros) {
+      const num = parseFloat(match.replace('€', '').trim().replace(',', '.'));
+      if (num >= 25 && num <= 500) {
+        return { price: Math.round(num), price_type: 'per sessie' };
+      }
+    }
+  }
+
   return { price: null, price_type: 'per sessie' };
 }
 
@@ -148,6 +165,7 @@ function extractSpecialties(fullText) {
     'leiderschap', 'persoonlijke groei', 'zelfvertrouwen', 'angst',
     'gezondheid', 'lifestyle', 'timemanagement', 'productiviteit',
     'communicatie', 'ondernemerschap', 'financieel', 'balans',
+    'teamcoaching', 'hsp', 'adhd', 'rouw', 'opvoeding', 'scheiding',
   ];
 
   const found = termChecks.filter((term) => text.includes(term));
@@ -165,9 +183,9 @@ function extractLanguages(fullText) {
 
   if (text.includes('nederlands') || text.includes('dutch')) languages.push('Nederlands');
   if (text.includes('engels') || text.includes('english')) languages.push('Engels');
-  if (text.includes('duits') || text.includes('german')) languages.push('Duits');
-  if (text.includes('frans') || text.includes('french')) languages.push('Frans');
-  if (text.includes('spaans') || text.includes('spanish')) languages.push('Spaans');
+  if (text.includes('duits') || text.includes('german') || text.includes('deutsch')) languages.push('Duits');
+  if (text.includes('frans') || text.includes('french') || text.includes('français')) languages.push('Frans');
+  if (text.includes('spaans') || text.includes('spanish') || text.includes('español')) languages.push('Spaans');
 
   // Default to Dutch if nothing found
   return languages.length > 0 ? languages : ['Nederlands'];
@@ -205,7 +223,8 @@ function extractEmail($, fullText) {
  */
 function extractCertifications($) {
   const certifications = [];
-  const certKeywords = ['icf', 'noloc', 'nobco', 'emcc', 'nvp', 'nip', 'certified', 'gecertificeerd', 'register', 'accreditatie'];
+  const certKeywords = ['icf', 'noloc', 'nobco', 'emcc', 'nvp', 'nip', 'lvsc',
+    'certified', 'gecertificeerd', 'register', 'accreditatie', 'eqa'];
 
   $('[class*="certif"], [class*="opleiding"], [class*="accredit"], [class*="keurmerk"]').each((_, el) => {
     const text = $(el).text().trim();
@@ -225,7 +244,27 @@ function extractCertifications($) {
 }
 
 /**
+ * Extract data from a single HTML page.
+ * @param {string} html
+ * @returns {Object} extracted data
+ */
+function extractFromPage(html) {
+  const $ = cheerio.load(html);
+  const fullText = $('body').text().replace(/\s+/g, ' ').trim();
+
+  return {
+    bio: extractBio($),
+    price: extractPrice($, fullText),
+    specialties: extractSpecialties(fullText),
+    languages: extractLanguages(fullText),
+    email: extractEmail($, fullText),
+    certifications: extractCertifications($),
+  };
+}
+
+/**
  * Enrich a single coach record by visiting their website.
+ * Now supports multi-page crawling for better data extraction.
  * @param {{ id: number, website: string, name: string }} coach
  * @returns {Promise<boolean>} true if enriched successfully
  */
@@ -236,41 +275,95 @@ async function enrichCoach(coach) {
   } catch (err) {
     console.error(`  [${coach.name}] Fetch failed: ${err.message}`);
     // Mark as enriched anyway to avoid retrying permanently broken URLs
-    await sql`UPDATE coaches SET enriched = TRUE, updated_at = NOW() WHERE id = ${coach.id}`;
+    if (!REENRICH_MODE) {
+      await sql`UPDATE coaches SET enriched = TRUE, updated_at = NOW() WHERE id = ${coach.id}`;
+    }
     return false;
   }
 
-  const $ = cheerio.load(html);
-  const fullText = $('body').text().replace(/\s+/g, ' ').trim();
+  // Extract data from main page
+  const data = extractFromPage(html);
+  let { bio } = data;
+  let { price, price_type } = data.price;
+  let { specialties, languages, email, certifications } = data;
 
-  const bio = extractBio($);
-  const { price, price_type } = extractPrice($, fullText);
-  const specialties = extractSpecialties(fullText);
-  const languages = extractLanguages(fullText);
-  const email = extractEmail($, fullText);
-  const certifications = extractCertifications($);
+  // Multi-page crawling: if bio or price is missing, try subpages
+  if (!bio || bio.length < 50 || !price) {
+    for (const subpage of SUBPAGES) {
+      try {
+        const subUrl = new URL(subpage, coach.website).toString();
+        await sleep(1000); // Shorter delay for same-site requests
+        const subHtml = await fetchWithTimeout(subUrl);
+        const subData = extractFromPage(subHtml);
+
+        // Fill in missing data from subpage
+        if ((!bio || bio.length < 50) && subData.bio && subData.bio.length > bio.length) {
+          bio = subData.bio;
+        }
+        if (!price && subData.price.price) {
+          price = subData.price.price;
+          price_type = subData.price.price_type;
+        }
+        if (!email && subData.email) {
+          email = subData.email;
+        }
+        if (subData.specialties.length > specialties.length) {
+          specialties = subData.specialties;
+        }
+        if (subData.certifications.length > certifications.length) {
+          certifications = subData.certifications;
+        }
+
+        // Stop crawling subpages if we have enough data
+        if (bio && bio.length >= 50 && price && email) break;
+      } catch {
+        // Skip subpages that fail — totally normal
+      }
+    }
+  }
 
   // Update enriched flag first
   await sql`UPDATE coaches SET enriched = TRUE, updated_at = NOW() WHERE id = ${coach.id}`;
 
-  // Only update fields that have values — don't overwrite existing good data with empty
-  if (bio) {
-    await sql`UPDATE coaches SET bio = ${bio} WHERE id = ${coach.id} AND (bio IS NULL OR bio = '')`;
+  // In re-enrich mode, we update even if field has data (if new data is better)
+  if (REENRICH_MODE) {
+    if (bio && bio.length > 50) {
+      await sql`UPDATE coaches SET bio = ${bio} WHERE id = ${coach.id} AND (bio IS NULL OR bio = '' OR length(bio) < ${bio.length})`;
+    }
+    if (price != null) {
+      await sql`UPDATE coaches SET price = ${price}, price_type = ${price_type} WHERE id = ${coach.id}`;
+    }
+    if (specialties.length > 0) {
+      await sql`UPDATE coaches SET specialties = ${specialties} WHERE id = ${coach.id} AND (array_length(specialties, 1) IS NULL OR array_length(specialties, 1) < ${specialties.length})`;
+    }
+    if (email) {
+      await sql`UPDATE coaches SET email = ${email} WHERE id = ${coach.id} AND email IS NULL`;
+    }
+    if (certifications.length > 0) {
+      await sql`UPDATE coaches SET certifications = ${certifications} WHERE id = ${coach.id} AND (array_length(certifications, 1) IS NULL OR array_length(certifications, 1) < ${certifications.length})`;
+    }
+  } else {
+    // Normal mode: only fill NULL/empty fields
+    if (bio) {
+      await sql`UPDATE coaches SET bio = ${bio} WHERE id = ${coach.id} AND (bio IS NULL OR bio = '')`;
+    }
+    if (price != null) {
+      await sql`UPDATE coaches SET price = ${price}, price_type = ${price_type} WHERE id = ${coach.id} AND price IS NULL`;
+    }
+    if (specialties.length > 0) {
+      await sql`UPDATE coaches SET specialties = ${specialties} WHERE id = ${coach.id} AND array_length(specialties, 1) IS NULL`;
+    }
+    if (email) {
+      await sql`UPDATE coaches SET email = ${email} WHERE id = ${coach.id} AND email IS NULL`;
+    }
+    if (certifications.length > 0) {
+      await sql`UPDATE coaches SET certifications = ${certifications} WHERE id = ${coach.id} AND array_length(certifications, 1) IS NULL`;
+    }
   }
-  if (price != null) {
-    await sql`UPDATE coaches SET price = ${price}, price_type = ${price_type} WHERE id = ${coach.id} AND price IS NULL`;
-  }
-  if (specialties.length > 0) {
-    await sql`UPDATE coaches SET specialties = ${specialties} WHERE id = ${coach.id} AND array_length(specialties, 1) IS NULL`;
-  }
+
+  // Always update languages
   if (languages.length > 0) {
     await sql`UPDATE coaches SET languages = ${languages} WHERE id = ${coach.id}`;
-  }
-  if (email) {
-    await sql`UPDATE coaches SET email = ${email} WHERE id = ${coach.id} AND email IS NULL`;
-  }
-  if (certifications.length > 0) {
-    await sql`UPDATE coaches SET certifications = ${certifications} WHERE id = ${coach.id} AND array_length(certifications, 1) IS NULL`;
   }
 
   return true;
@@ -280,17 +373,31 @@ async function enrichCoach(coach) {
  * Main entry point.
  */
 async function main() {
-  console.log('Starting website enricher...');
+  if (REENRICH_MODE) {
+    console.log('Starting website enricher (RE-ENRICH MODE — low-quality coaches)...');
+  } else {
+    console.log('Starting website enricher...');
+  }
 
-  // Fetch all coaches with a website that haven't been enriched yet
-  const coaches = await sql`
-    SELECT id, name, website
-    FROM coaches
-    WHERE website IS NOT NULL
-      AND enriched = FALSE
-      AND active = TRUE
-    ORDER BY id
-  `;
+  // Fetch coaches to enrich
+  const coaches = REENRICH_MODE
+    ? await sql`
+        SELECT id, name, website
+        FROM coaches
+        WHERE website IS NOT NULL
+          AND active = TRUE
+          AND quality_score < 40
+        ORDER BY quality_score ASC
+        LIMIT 2000
+      `
+    : await sql`
+        SELECT id, name, website
+        FROM coaches
+        WHERE website IS NOT NULL
+          AND enriched = FALSE
+          AND active = TRUE
+        ORDER BY id
+      `;
 
   console.log(`Found ${coaches.length} coaches to enrich`);
 
@@ -316,9 +423,10 @@ async function main() {
   }
 
   console.log('\n=== Website Enricher Summary ===');
-  console.log(`  Coaches processed: ${coaches.length}`);
-  console.log(`  Successfully enriched: ${successCount}`);
-  console.log(`  Failed/skipped:        ${failCount}`);
+  console.log(`  Mode:                 ${REENRICH_MODE ? 'Re-enrich' : 'Normal'}`);
+  console.log(`  Coaches processed:    ${coaches.length}`);
+  console.log(`  Successfully enriched:${successCount}`);
+  console.log(`  Failed/skipped:       ${failCount}`);
 }
 
 main().catch((err) => {

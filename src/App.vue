@@ -156,9 +156,9 @@
           <div>
             <h3 class="font-semibold mb-4">Juridisch</h3>
             <ul class="space-y-2 text-sm">
-              <li><a href="#" class="text-neutral-400 hover:text-white transition-colors">Privacy beleid</a></li>
-              <li><a href="#" class="text-neutral-400 hover:text-white transition-colors">Algemene voorwaarden</a></li>
-              <li><a href="#" class="text-neutral-400 hover:text-white transition-colors">Contact</a></li>
+              <li><router-link to="/privacy" class="text-neutral-400 hover:text-white transition-colors">Privacy beleid</router-link></li>
+              <li><router-link to="/terms" class="text-neutral-400 hover:text-white transition-colors">Algemene voorwaarden</router-link></li>
+              <li><router-link to="/contact" class="text-neutral-400 hover:text-white transition-colors">Contact</router-link></li>
             </ul>
           </div>
         </div>
