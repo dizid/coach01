@@ -1,5 +1,5 @@
-import { getSql } from './utils/db.js'
-import { corsHeaders } from './utils/cors.js'
+import { getSql } from '../lib/db.js'
+import { corsHeaders } from '../lib/cors.js'
 
 const CORS = corsHeaders('GET, OPTIONS')
 

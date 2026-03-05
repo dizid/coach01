@@ -1,5 +1,5 @@
-import { getSql } from './utils/db.js'
-import { sendEmail } from './utils/email.js'
+import { getSql } from '../lib/db.js'
+import { sendEmail } from '../lib/email.js'
 
 /**
  * Build the 14-day follow-up email.

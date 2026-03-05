@@ -1,6 +1,6 @@
-import { getSql } from './utils/db.js'
-import { corsHeaders } from './utils/cors.js'
-import { sendEmail } from './utils/email.js'
+import { getSql } from '../lib/db.js'
+import { corsHeaders } from '../lib/cors.js'
+import { sendEmail } from '../lib/email.js'
 
 const CORS = corsHeaders('POST, OPTIONS')
 
