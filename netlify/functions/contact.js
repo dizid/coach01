@@ -1,62 +1,8 @@
-import { neon, neonConfig } from '@neondatabase/serverless'
+import { getSql } from './utils/db.js'
+import { corsHeaders } from './utils/cors.js'
+import { sendEmail } from './utils/email.js'
 
-// Dev: load .env and force IPv4 to avoid Neon timeout issues
-if (!process.env.DATABASE_URL) {
-  try {
-    const { config } = await import('dotenv')
-    config()
-  } catch { /* not needed in production */ }
-}
-try {
-  const { Agent, fetch: undiciFetch } = await import('undici')
-  const agent = new Agent({ connect: { family: 4 } })
-  neonConfig.fetchFunction = (url, opts) => undiciFetch(url, { ...opts, dispatcher: agent })
-} catch { /* undici not needed on Netlify — IPv6 works there */ }
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Content-Type': 'application/json',
-}
-
-/**
- * Send an email via Resend REST API.
- * Returns true on success, false on failure (we log but don't crash).
- */
-async function sendEmail({ to, subject, html }) {
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) {
-    console.warn('[contact] RESEND_API_KEY not set — skipping email send')
-    return false
-  }
-
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'CoachFinder <noreply@geluk.tnxz.nl>',
-        to,
-        subject,
-        html,
-      }),
-    })
-
-    if (!res.ok) {
-      const err = await res.text()
-      console.error('[contact] Resend error:', err)
-      return false
-    }
-    return true
-  } catch (err) {
-    console.error('[contact] Failed to send email:', err)
-    return false
-  }
-}
+const CORS = corsHeaders('POST, OPTIONS')
 
 /**
  * Format questionnaire answers into a readable HTML block for the coach email.
@@ -203,13 +149,13 @@ function userConfirmationHtml({ lead, coachName }) {
 export default async (request) => {
   // Handle preflight
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS_HEADERS })
+    return new Response(null, { status: 204, headers: CORS })
   }
 
   if (request.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: CORS_HEADERS,
+      headers: CORS,
     })
   }
 
@@ -219,7 +165,7 @@ export default async (request) => {
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
       status: 400,
-      headers: CORS_HEADERS,
+      headers: CORS,
     })
   }
 
@@ -229,11 +175,11 @@ export default async (request) => {
   if (!userName || !userEmail || !coachId) {
     return new Response(JSON.stringify({ error: 'userName, userEmail and coachId are required' }), {
       status: 400,
-      headers: CORS_HEADERS,
+      headers: CORS,
     })
   }
 
-  const sql = neon(process.env.DATABASE_URL)
+  const sql = getSql()
 
   try {
     // Fetch coach details (name + email for notification)
@@ -244,7 +190,7 @@ export default async (request) => {
     if (coaches.length === 0) {
       return new Response(JSON.stringify({ error: 'Coach not found' }), {
         status: 404,
-        headers: CORS_HEADERS,
+        headers: CORS,
       })
     }
 
@@ -284,7 +230,7 @@ export default async (request) => {
         to: coach.email,
         subject: `Nieuwe coachaanvraag van ${userName}`,
         html: coachEmailHtml({ lead, coach }),
-      })
+      }, '[contact]')
     } else {
       console.warn(`[contact] Coach ${coach.id} has no email — skipping coach notification`)
     }
@@ -294,17 +240,17 @@ export default async (request) => {
       to: userEmail,
       subject: 'Je coachingaanvraag is ontvangen!',
       html: userConfirmationHtml({ lead, coachName: coach.name }),
-    })
+    }, '[contact]')
 
     return new Response(
       JSON.stringify({ success: true, leadId: lead.id, leadToken: lead.lead_token }),
-      { status: 201, headers: CORS_HEADERS }
+      { status: 201, headers: CORS }
     )
   } catch (err) {
     console.error('[contact] error:', err)
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
-      headers: CORS_HEADERS,
+      headers: CORS,
     })
   }
 }

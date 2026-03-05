@@ -1,24 +1,7 @@
-import { neon, neonConfig } from '@neondatabase/serverless'
+import { getSql } from './utils/db.js'
+import { corsHeaders } from './utils/cors.js'
 
-// In dev, load .env and force IPv4 to avoid timeout issues
-if (!process.env.DATABASE_URL) {
-  try {
-    const { config } = await import('dotenv')
-    config()
-  } catch { /* dotenv not available in production */ }
-}
-try {
-  const { Agent, fetch: undiciFetch } = await import('undici')
-  const agent = new Agent({ connect: { family: 4 } })
-  neonConfig.fetchFunction = (url, opts) => undiciFetch(url, { ...opts, dispatcher: agent })
-} catch { /* undici not available in production (Netlify) — IPv6 works there */ }
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Content-Type': 'application/json',
-}
+const CORS = corsHeaders('GET, OPTIONS')
 
 /**
  * Map a database row (snake_case) to the camelCase shape the frontend expects.
@@ -53,17 +36,17 @@ function mapCoach(row) {
 export default async (request, context) => {
   // Handle preflight CORS request
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS_HEADERS })
+    return new Response(null, { status: 204, headers: CORS })
   }
 
   if (request.method !== 'GET') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: CORS_HEADERS,
+      headers: CORS,
     })
   }
 
-  const sql = neon(process.env.DATABASE_URL)
+  const sql = getSql()
 
   try {
     const url = new URL(request.url)
@@ -88,19 +71,17 @@ export default async (request, context) => {
       if (rows.length === 0) {
         return new Response(JSON.stringify({ error: 'Coach not found' }), {
           status: 404,
-          headers: CORS_HEADERS,
+          headers: CORS,
         })
       }
 
       return new Response(JSON.stringify(mapCoach(rows[0])), {
         status: 200,
-        headers: CORS_HEADERS,
+        headers: CORS,
       })
     }
 
     // List coaches with optional filters
-    // neon() tagged templates don't support fragment composition,
-    // so we use separate queries based on which filters are active
     const locationFilter = location || null
     const priceFilter    = maxPrice ? parseInt(maxPrice, 10) : null
     const ratingFilter   = minRating ? parseFloat(minRating) : null
@@ -134,13 +115,13 @@ export default async (request, context) => {
         limit,
         offset,
       }),
-      { status: 200, headers: CORS_HEADERS }
+      { status: 200, headers: CORS }
     )
   } catch (err) {
     console.error('[coaches] error:', err)
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
-      headers: CORS_HEADERS,
+      headers: CORS,
     })
   }
 }

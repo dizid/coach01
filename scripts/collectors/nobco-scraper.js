@@ -5,6 +5,7 @@ import { fetchIPv4 } from '../utils/fetch-ipv4.js';
 import { normalizeSpecialties, normalizeCity, normalizeName } from '../utils/normalize.js';
 import { findDuplicate, mergeCoachData } from '../utils/dedup.js';
 import { CITY_TO_PROVINCE } from '../data/dutch-municipalities.js';
+import { sleep } from '../utils/sleep.js';
 
 const BASE_URL = 'https://www.nobco.nl';
 const USER_AGENT = 'CoachFinder Bot 1.0 (educational/research - contact: info@dizid.nl)';
@@ -19,10 +20,6 @@ const COACH_SITEMAPS = [
   `${BASE_URL}/coach-sitemap3.xml`,
   `${BASE_URL}/coach-sitemap4.xml`,
 ];
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Fetch a URL with timeout and polite headers.

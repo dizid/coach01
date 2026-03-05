@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import { sql } from '../utils/db.js';
 import { fetchIPv4 } from '../utils/fetch-ipv4.js';
 import { normalizeSpecialties } from '../utils/normalize.js';
+import { sleep } from '../utils/sleep.js';
 
 const USER_AGENT = 'CoachFinder Bot 1.0 (educational/research - contact: info@dizid.nl)';
 // Polite rate limit: 1 request per 3 seconds
@@ -15,14 +16,6 @@ const REENRICH_MODE = process.argv.includes('--reenrich');
 
 // Subpages to check if main page doesn't yield enough data
 const SUBPAGES = ['/over-mij', '/about', '/over-ons', '/tarieven', '/prijzen', '/prices', '/contact'];
-
-/**
- * Sleep for a given number of milliseconds.
- * @param {number} ms
- */
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Fetch a URL with a timeout and polite headers.

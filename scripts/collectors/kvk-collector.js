@@ -5,6 +5,7 @@ import { fetchIPv4 } from '../utils/fetch-ipv4.js';
 import { normalizeCity, normalizeName } from '../utils/normalize.js';
 import { findDuplicate, mergeCoachData } from '../utils/dedup.js';
 import { CITY_TO_PROVINCE } from '../data/dutch-municipalities.js';
+import { sleep } from '../utils/sleep.js';
 
 const API_KEY = process.env.KVK_API_KEY;
 if (!API_KEY) throw new Error('KVK_API_KEY environment variable is required. Get one free at developers.kvk.nl');
@@ -33,10 +34,6 @@ const COACHING_SBI_CODES = ['70222', '85592', '85599', '96099'];
 // Rate limit: 5 requests/second (KvK is generous)
 const limit = pLimit(3);
 const REQUEST_DELAY_MS = 300; // ~3 req/sec
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Search KvK Zoeken API for coaching businesses.

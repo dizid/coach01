@@ -231,6 +231,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCoachesStore } from '@/stores/useCoaches'
 import { useQuestionStore } from '@/stores/useQuestions'
+import { getAreaDisplayName } from '@/utils/areas'
 
 // Router for navigation
 const router = useRouter()
@@ -252,21 +253,7 @@ const displayedCoaches = computed(() => coachesStore.filteredCoaches)
 const availableLocations = computed(() => coachesStore.availableLocations)
 const areasNeedingImprovement = computed(() => questionStore.areasNeedingImprovement)
 
-/**
- * Get display name for area
- */
-const getAreaDisplayName = (area) => {
-  const displayNames = {
-    werk: 'Werk & Carrière',
-    sociaal: 'Sociaal',
-    relatie: 'Relaties',
-    financieel: 'Financiën',
-    geluk: 'Geluk',
-    gezondheid: 'Gezondheid',
-    praktisch: 'Praktisch'
-  }
-  return displayNames[area] || area
-}
+// getAreaDisplayName imported from @/utils/areas
 
 /**
  * Apply filters to coach list

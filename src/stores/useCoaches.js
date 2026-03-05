@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { getAreaDisplayName } from '@/utils/areas'
 
 /**
  * Store for managing coaches data and matching logic
@@ -205,22 +206,9 @@ export const useCoachesStore = defineStore({
         },
 
         /**
-         * Get display name for area
-         * @param {string} area - Internal area name
-         * @returns {string} Human-readable area name
+         * Get display name for area (delegates to shared util)
          */
-        getAreaDisplayName(area) {
-            const displayNames = {
-                werk: 'werk en carrière',
-                sociaal: 'sociaal leven',
-                relatie: 'relaties',
-                financieel: 'financiën',
-                geluk: 'geluk en welzijn',
-                gezondheid: 'gezondheid',
-                praktisch: 'praktische zaken'
-            }
-            return displayNames[area] || area
-        },
+        getAreaDisplayName,
 
         /**
          * Select a coach for detailed view

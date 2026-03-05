@@ -1,45 +1,5 @@
-import { neon, neonConfig } from '@neondatabase/serverless'
-
-// Force IPv4 — not needed on Netlify but harmless
-try {
-  const { Agent, fetch: undiciFetch } = await import('undici')
-  const agent = new Agent({ connect: { family: 4 } })
-  neonConfig.fetchFunction = (url, opts) => undiciFetch(url, { ...opts, dispatcher: agent })
-} catch { /* ok */ }
-
-/**
- * Send email via Resend REST API.
- */
-async function sendEmail({ to, subject, html }) {
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) {
-    console.warn('[follow-up] RESEND_API_KEY not set')
-    return false
-  }
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'CoachFinder <noreply@geluk.tnxz.nl>',
-        to,
-        subject,
-        html,
-      }),
-    })
-    if (!res.ok) {
-      console.error('[follow-up] Resend error:', await res.text())
-      return false
-    }
-    return true
-  } catch (err) {
-    console.error('[follow-up] Email failed:', err)
-    return false
-  }
-}
+import { getSql } from './utils/db.js'
+import { sendEmail } from './utils/email.js'
 
 /**
  * Build the 14-day follow-up email.
@@ -92,7 +52,7 @@ function followUpHtml({ lead, baseUrl }) {
  * Finds leads due for follow-up and sends reminder emails.
  */
 export default async () => {
-  const sql = neon(process.env.DATABASE_URL)
+  const sql = getSql()
   const baseUrl = process.env.URL || 'https://geluk.tnxz.nl'
 
   try {
@@ -114,7 +74,7 @@ export default async () => {
         to: lead.user_email,
         subject: `Heb je al coaching gestart met ${lead.coach_name}?`,
         html: followUpHtml({ lead, baseUrl }),
-      })
+      }, '[follow-up]')
 
       if (ok) {
         // Mark as sent

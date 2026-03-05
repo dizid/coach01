@@ -17,10 +17,11 @@
     "enrich": "node --env-file=.env scripts/enrichment/website-enricher.js",
     "enrich:reenrich": "node --env-file=.env scripts/enrichment/website-enricher.js --reenrich",
     "enrich:provinces": "node --env-file=.env scripts/enrichment/province-enricher.js",
-    "score": "node --env-file=.env scripts/enrichment/quality-scorer.js"
+    "score": "node --env-file=.env scripts/enrichment/quality-scorer.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "@formkit/vue": "^1.0.0-beta.9",
     "@neondatabase/serverless": "^0.10.0",
     "pinia": "^2.0.16",
     "undici": "^7.22.0",
@@ -30,12 +31,14 @@
   "devDependencies": {
     "@netlify/vite-plugin": "^2.10.3",
     "@vitejs/plugin-vue": "^5.0.0",
+    "@vue/test-utils": "^2.4.6",
     "autoprefixer": "^10",
     "cheerio": "^1.0.0",
-    "node-fetch": "^3.3.0",
+    "happy-dom": "^20.8.3",
     "p-limit": "^6.0.0",
     "postcss": "^8",
     "tailwindcss": "^3",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.0.18"
   }
 }

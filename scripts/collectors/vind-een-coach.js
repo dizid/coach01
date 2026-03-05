@@ -5,6 +5,7 @@ import { fetchIPv4 } from '../utils/fetch-ipv4.js';
 import { normalizeCity, normalizeSpecialties, normalizeName } from '../utils/normalize.js';
 import { findDuplicate, mergeCoachData } from '../utils/dedup.js';
 import { CITY_TO_PROVINCE } from '../data/dutch-municipalities.js';
+import { sleep } from '../utils/sleep.js';
 
 const BASE_URL = 'https://www.vind-een-coach.nl';
 const USER_AGENT = 'CoachFinder Bot 1.0 (educational/research - contact: info@dizid.nl)';
@@ -18,16 +19,14 @@ const PROVINCE_SLUGS = [
   'overijssel', 'utrecht', 'zeeland', 'zuid-holland',
 ];
 
-// Specialty paths to browse
+// Specialty paths to browse (from vind-een-coach.nl's actual search options)
 const SPECIALTY_SLUGS = [
-  'burnout', 'loopbaan', 'relatie', 'life-coaching', 'business',
-  'stress', 'zelfvertrouwen', 'persoonlijke-groei', 'mindfulness',
-  'executive', 'gezondheid', 'carriere',
+  'burnout-coaching', 'loopbaan-coaching', 'relatiecoach', 'life-coaching',
+  'bedrijfscoaching', 'stress-begeleiding', 'professional-coaching',
+  'hsp-hooggevoeligheid-coaching', 'faalangst-coaching', 'gezinscoach',
+  'coach-kinderen-kindercoaching', 'coach-jongeren', 'adhd',
+  'teambuilding', 'beroepskeuze',
 ];
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Fetch a URL with timeout and polite headers.
@@ -358,93 +357,86 @@ async function upsertCoach(coach) {
 }
 
 /**
- * Scrape a single category/province page and all its subpages.
- * @param {string} url
+ * Scrape a single category/province via the search results endpoint.
+ * Uses the Yii-based API at /site-profile/search-results.html?searchUri={slug}&p={page}&perPage=25
+ * @param {string} slug - Province or specialty slug
  * @param {string} label
  * @returns {Promise<{ found: number, inserted: number, merged: number }>}
  */
-async function scrapeSection(url, label) {
+async function scrapeSection(slug, label) {
   let found = 0;
   let inserted = 0;
   let merged = 0;
 
-  try {
-    const html = await fetchPage(url);
+  let page = 1;
+  const perPage = 25;
+  let hasMore = true;
 
-    // Check for API endpoint
-    const apiUrl = discoverApiEndpoint(html);
-    if (apiUrl) {
-      console.log(`  Discovered API endpoint: ${apiUrl}`);
-    }
+  while (hasMore) {
+    const url = `${BASE_URL}/site-profile/search-results.html?searchUri=${slug}&p=${page}&perPage=${perPage}`;
 
-    const listings = parseCoachListings(html);
-    const totalPages = getTotalPages(html);
-    console.log(`  ${label}: ${listings.length} coaches on page 1, ${totalPages} total pages`);
+    try {
+      const html = await fetchPage(url);
+      const listings = parseCoachListings(html);
 
-    // Process listings from page 1
-    for (const listing of listings) {
-      found++;
-      await sleep(REQUEST_DELAY_MS);
-
-      let profileData = {};
-      if (listing.profileUrl) {
-        try {
-          const profileHtml = await fetchPage(listing.profileUrl);
-          profileData = parseProfilePage(profileHtml, listing.profileUrl);
-        } catch (err) {
-          console.error(`    Profile fetch failed: ${err.message}`);
-        }
+      if (listings.length === 0) {
+        // No more results or empty page
+        if (page === 1) console.log(`  ${label}: 0 coaches found`);
+        hasMore = false;
+        break;
       }
 
-      const coach = {
-        name: listing.name,
-        bio: profileData.bio || listing.bio || '',
-        city: normalizeCity(profileData.city || listing.city),
-        website: profileData.website || listing.website || null,
-        email: profileData.email || null,
-        phone: profileData.phone || null,
-        specialties: normalizeSpecialties([...listing.specialties, ...(profileData.specialties || [])]),
-        source_url: listing.profileUrl || url,
-      };
+      if (page === 1) {
+        const totalPages = getTotalPages(html);
+        console.log(`  ${label}: ${listings.length} coaches on page 1, ~${totalPages} total pages`);
+      }
 
-      const action = await upsertCoach(coach);
-      if (action === 'inserted') inserted++;
-      if (action === 'merged') merged++;
-    }
+      // Process listings from this page
+      for (const listing of listings) {
+        found++;
 
-    // Process remaining pages
-    for (let page = 2; page <= totalPages; page++) {
-      await sleep(REQUEST_DELAY_MS);
-
-      const pageUrl = `${url}?page=${page}`;
-      try {
-        const pageHtml = await fetchPage(pageUrl);
-        const pageListings = parseCoachListings(pageHtml);
-
-        for (const listing of pageListings) {
-          found++;
+        // Visit profile page for detailed data
+        let profileData = {};
+        if (listing.profileUrl) {
           await sleep(REQUEST_DELAY_MS);
-
-          const coach = {
-            name: listing.name,
-            bio: listing.bio || '',
-            city: normalizeCity(listing.city),
-            specialties: normalizeSpecialties(listing.specialties),
-            source_url: listing.profileUrl || pageUrl,
-          };
-
-          const action = await upsertCoach(coach);
-          if (action === 'inserted') inserted++;
-          if (action === 'merged') merged++;
+          try {
+            const profileHtml = await fetchPage(listing.profileUrl);
+            profileData = parseProfilePage(profileHtml, listing.profileUrl);
+          } catch (err) {
+            // Skip profile on error — use listing data only
+          }
         }
-      } catch (err) {
-        console.error(`    Page ${page} failed: ${err.message}`);
+
+        const coach = {
+          name: listing.name,
+          bio: profileData.bio || listing.bio || '',
+          city: normalizeCity(profileData.city || listing.city),
+          website: profileData.website || listing.website || null,
+          email: profileData.email || null,
+          phone: profileData.phone || null,
+          specialties: normalizeSpecialties([...listing.specialties, ...(profileData.specialties || [])]),
+          source_url: listing.profileUrl || url,
+        };
+
+        const action = await upsertCoach(coach);
+        if (action === 'inserted') inserted++;
+        if (action === 'merged') merged++;
       }
+
+      // If we got fewer than perPage results, we've reached the last page
+      if (listings.length < perPage) {
+        hasMore = false;
+      } else {
+        page++;
+        await sleep(REQUEST_DELAY_MS);
+      }
+    } catch (err) {
+      console.error(`  ${label} page ${page} failed: ${err.message}`);
+      hasMore = false;
     }
-  } catch (err) {
-    console.error(`  ${label} failed: ${err.message}`);
   }
 
+  console.log(`  ${label} result: found ${found}, new ${inserted}, merged ${merged}`);
   return { found, inserted, merged };
 }
 
@@ -467,8 +459,7 @@ async function main() {
   // Browse by province
   console.log('\n--- Browsing by province ---');
   for (const slug of PROVINCE_SLUGS) {
-    const url = `${BASE_URL}/zoeken/${slug}`;
-    const result = await scrapeSection(url, slug);
+    const result = await scrapeSection(slug, slug);
     totalFound += result.found;
     totalInserted += result.inserted;
     totalMerged += result.merged;
@@ -484,8 +475,7 @@ async function main() {
   // Browse by specialty
   console.log('\n--- Browsing by specialty ---');
   for (const slug of SPECIALTY_SLUGS) {
-    const url = `${BASE_URL}/zoeken/${slug}`;
-    const result = await scrapeSection(url, slug);
+    const result = await scrapeSection(slug, slug);
     totalFound += result.found;
     totalInserted += result.inserted;
     totalMerged += result.merged;
