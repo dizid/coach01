@@ -6,10 +6,12 @@ import { normalizeSpecialties } from '../utils/normalize.js';
 import { sleep } from '../utils/sleep.js';
 
 const USER_AGENT = 'CoachFinder Bot 1.0 (educational/research - contact: info@dizid.nl)';
-// Polite rate limit: 1 request per 3 seconds
-const REQUEST_DELAY_MS = 3000;
 // Timeout for website fetches
 const FETCH_TIMEOUT_MS = 10000;
+// Concurrent workers — each visits a different domain so this is safe
+const CONCURRENCY = 5;
+// Delay between starting each coach within a worker (ms)
+const WORKER_DELAY_MS = 500;
 
 // Re-enrich mode: re-process low-quality coaches
 const REENRICH_MODE = process.argv.includes('--reenrich');
@@ -392,28 +394,40 @@ async function main() {
         ORDER BY id
       `;
 
-  console.log(`Found ${coaches.length} coaches to enrich`);
+  console.log(`Found ${coaches.length} coaches to enrich (concurrency: ${CONCURRENCY})`);
 
   let successCount = 0;
   let failCount = 0;
+  let nextIdx = 0;
 
-  for (let i = 0; i < coaches.length; i++) {
-    const coach = coaches[i];
-    console.log(`[${i + 1}/${coaches.length}] Enriching: ${coach.name} — ${coach.website}`);
+  // Worker function: picks next coach from queue, processes it, repeats
+  async function worker(workerId) {
+    while (true) {
+      const idx = nextIdx++;
+      if (idx >= coaches.length) break;
 
-    const ok = await enrichCoach(coach);
-    if (ok) {
-      successCount++;
-      console.log(`  OK`);
-    } else {
-      failCount++;
-    }
+      const coach = coaches[idx];
+      console.log(`[${idx + 1}/${coaches.length}] (W${workerId}) ${coach.name} — ${coach.website}`);
 
-    // Polite delay between website visits
-    if (i < coaches.length - 1) {
-      await sleep(REQUEST_DELAY_MS);
+      const ok = await enrichCoach(coach);
+      if (ok) {
+        successCount++;
+        console.log(`  [${idx + 1}] OK`);
+      } else {
+        failCount++;
+      }
+
+      // Small delay between coaches within a worker
+      await sleep(WORKER_DELAY_MS);
     }
   }
+
+  // Launch workers in parallel
+  const workers = [];
+  for (let w = 0; w < CONCURRENCY; w++) {
+    workers.push(worker(w + 1));
+  }
+  await Promise.all(workers);
 
   console.log('\n=== Website Enricher Summary ===');
   console.log(`  Mode:                 ${REENRICH_MODE ? 'Re-enrich' : 'Normal'}`);

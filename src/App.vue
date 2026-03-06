@@ -146,9 +146,9 @@
           <div>
             <h3 class="font-semibold mb-4">Informatie</h3>
             <ul class="space-y-2 text-sm">
-              <li><a href="#" class="text-neutral-400 hover:text-white transition-colors">Over ons</a></li>
-              <li><a href="#" class="text-neutral-400 hover:text-white transition-colors">Hoe het werkt</a></li>
-              <li><a href="#" class="text-neutral-400 hover:text-white transition-colors">Voor coaches</a></li>
+              <li><router-link to="/about" class="text-neutral-400 hover:text-white transition-colors">Over ons</router-link></li>
+              <li><router-link to="/questionnaire" class="text-neutral-400 hover:text-white transition-colors">Hoe het werkt</router-link></li>
+              <li><router-link to="/contact" class="text-neutral-400 hover:text-white transition-colors">Voor coaches</router-link></li>
             </ul>
           </div>
 
